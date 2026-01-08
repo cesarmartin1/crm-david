@@ -966,6 +966,16 @@ def init_tarifas_db():
         )
     ''')
 
+    # Agregar columnas si no existen (para tablas existentes)
+    try:
+        cursor.execute('ALTER TABLE tipos_bus ADD COLUMN coste_km REAL DEFAULT 0.85')
+    except:
+        pass
+    try:
+        cursor.execute('ALTER TABLE tipos_bus ADD COLUMN coste_hora REAL DEFAULT 30.0')
+    except:
+        pass
+
     # Tipos de cliente (segmentos)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS tipos_cliente (
