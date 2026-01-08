@@ -960,6 +960,8 @@ def init_tarifas_db():
             capacidad INTEGER,
             precio_base_hora REAL,
             precio_base_km REAL,
+            coste_km REAL DEFAULT 0.85,
+            coste_hora REAL DEFAULT 30.0,
             activo INTEGER DEFAULT 1
         )
     ''')
