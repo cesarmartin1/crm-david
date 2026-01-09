@@ -90,13 +90,15 @@ from database import (
     guardar_tipo_cliente, obtener_tipos_cliente, eliminar_tipo_cliente,
     guardar_tarifa_servicio, obtener_tarifas_servicio, obtener_tarifa_servicio, eliminar_tarifa_servicio,
     guardar_tarifa_cliente, obtener_tarifas_cliente, obtener_tarifa_cliente_especifica, eliminar_tarifa_cliente,
-    calcular_tarifa,
-    # Competencia y Análisis de Mercado
+    calcular_tarifa
+)
+
+# Competencia y Análisis de Mercado (Supabase - persistente)
+from db_competencia import (
     guardar_competidor, obtener_competidores, obtener_competidor_por_id, eliminar_competidor,
     guardar_cotizacion_competencia, obtener_cotizaciones_competencia, eliminar_cotizacion_competencia,
     obtener_estadisticas_mercado, obtener_posicion_por_servicio, obtener_ranking_competidores,
     detectar_alertas_competencia, comparar_con_tarifa_david, FACTOR_VEHICULO_NORM,
-    # Vehículos de competencia
     guardar_vehiculo_competencia, obtener_vehiculos_competencia, eliminar_vehiculo_competencia,
     actualizar_vehiculo_competencia, obtener_estadisticas_flota_competencia, obtener_comparativa_flotas, importar_vehiculos_masivo
 )
