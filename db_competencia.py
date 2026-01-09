@@ -1,36 +1,75 @@
 """
 Funciones de base de datos para el módulo de Competencia
 Usa Supabase para persistencia en la nube
+Con caché para mejor rendimiento
 """
+import streamlit as st
 from supabase_client import get_admin_client
 from datetime import datetime
 
 # Factor de normalización para comparar precios entre tipos de vehículo
 FACTOR_VEHICULO_NORM = {
-    'STD': 1.0,      # Autocar estándar 55 plazas
-    'EXEC': 1.15,    # Ejecutivo
-    'VIP': 1.30,     # VIP/Premium
-    'MICRO': 0.65,   # Microbus
-    'MINI': 0.80,    # Minibus
-    'GRAN': 1.10,    # Gran Turismo
+    'STD': 1.0,
+    'EXEC': 1.15,
+    'VIP': 1.30,
+    'MICRO': 0.65,
+    'MINI': 0.80,
+    'GRAN': 1.10,
 }
 
+# ============================================
+# FUNCIONES DE CACHÉ
+# ============================================
+
+def limpiar_cache_competencia():
+    """Limpia todo el caché de competencia."""
+    st.cache_data.clear()
+
+def limpiar_cache_competidores():
+    """Limpia caché de competidores."""
+    _obtener_competidores_cached.clear()
+    _obtener_estadisticas_flota_cached.clear()
+    _obtener_comparativa_flotas_cached.clear()
+
+def limpiar_cache_vehiculos():
+    """Limpia caché de vehículos."""
+    _obtener_vehiculos_cached.clear()
+    _obtener_estadisticas_flota_cached.clear()
+    _obtener_comparativa_flotas_cached.clear()
+
+def limpiar_cache_cotizaciones():
+    """Limpia caché de cotizaciones."""
+    _obtener_cotizaciones_cached.clear()
+    _obtener_estadisticas_mercado_cached.clear()
+    _obtener_ranking_cached.clear()
+
 
 # ============================================
-# COMPETIDORES
+# COMPETIDORES (con caché)
 # ============================================
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _obtener_competidores_cached(solo_activos: bool = True) -> list:
+    """Versión cacheada de obtener competidores."""
+    client = get_admin_client()
+    query = client.table('competidores').select('*')
+    if solo_activos:
+        query = query.eq('activo', True)
+    result = query.order('nombre').execute()
+    return result.data or []
+
+def obtener_competidores(solo_activos: bool = True) -> list:
+    """Obtiene la lista de competidores (cacheado)."""
+    return _obtener_competidores_cached(solo_activos)
 
 def guardar_competidor(nombre: str, segmento: str = 'estandar', zona_operacion: str = '',
                        flota_estimada: int = None, fortalezas: str = '',
                        debilidades: str = '', notas: str = '') -> int:
     """Guarda o actualiza un competidor."""
     client = get_admin_client()
-
-    # Verificar si existe
     existe = client.table('competidores').select('id').eq('nombre', nombre).execute()
 
     if existe.data:
-        # Actualizar
         client.table('competidores').update({
             'segmento': segmento,
             'zona_operacion': zona_operacion,
@@ -40,9 +79,9 @@ def guardar_competidor(nombre: str, segmento: str = 'estandar', zona_operacion: 
             'notas': notas,
             'fecha_actualizacion': datetime.now().isoformat()
         }).eq('nombre', nombre).execute()
+        limpiar_cache_competidores()
         return existe.data[0]['id']
     else:
-        # Insertar nuevo
         result = client.table('competidores').insert({
             'nombre': nombre,
             'segmento': segmento,
@@ -52,43 +91,52 @@ def guardar_competidor(nombre: str, segmento: str = 'estandar', zona_operacion: 
             'debilidades': debilidades,
             'notas': notas
         }).execute()
+        limpiar_cache_competidores()
         return result.data[0]['id'] if result.data else None
-
-
-def obtener_competidores(solo_activos: bool = True) -> list:
-    """Obtiene la lista de competidores."""
-    client = get_admin_client()
-
-    query = client.table('competidores').select('*')
-    if solo_activos:
-        query = query.eq('activo', True)
-
-    result = query.order('nombre').execute()
-    return result.data or []
-
 
 def obtener_competidor_por_id(competidor_id: int) -> dict:
     """Obtiene un competidor por su ID."""
-    client = get_admin_client()
-    result = client.table('competidores').select('*').eq('id', competidor_id).execute()
-    return result.data[0] if result.data else None
-
+    competidores = obtener_competidores()
+    return next((c for c in competidores if c['id'] == competidor_id), None)
 
 def eliminar_competidor(competidor_id: int) -> bool:
     """Elimina un competidor y sus datos relacionados."""
     client = get_admin_client()
-    # Eliminar cotizaciones relacionadas
     client.table('cotizaciones_competencia').delete().eq('competidor_id', competidor_id).execute()
-    # Eliminar vehículos relacionados
     client.table('vehiculos_competencia').delete().eq('competidor_id', competidor_id).execute()
-    # Eliminar competidor
     result = client.table('competidores').delete().eq('id', competidor_id).execute()
+    limpiar_cache_competidores()
+    limpiar_cache_vehiculos()
+    limpiar_cache_cotizaciones()
     return len(result.data) > 0 if result.data else False
 
 
 # ============================================
-# COTIZACIONES
+# COTIZACIONES (con caché)
 # ============================================
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _obtener_cotizaciones_cached(competidor_id: int = None, tipo_servicio: str = None) -> list:
+    """Versión cacheada de obtener cotizaciones."""
+    client = get_admin_client()
+    query = client.table('cotizaciones_competencia').select('*, competidores(nombre)')
+
+    if competidor_id:
+        query = query.eq('competidor_id', competidor_id)
+    if tipo_servicio:
+        query = query.eq('tipo_servicio', tipo_servicio)
+
+    result = query.order('fecha_captura', desc=True).execute()
+
+    datos = []
+    for row in result.data or []:
+        row['competidor_nombre'] = row.get('competidores', {}).get('nombre', '') if row.get('competidores') else ''
+        datos.append(row)
+    return datos
+
+def obtener_cotizaciones_competencia(competidor_id: int = None, tipo_servicio: str = None) -> list:
+    """Obtiene cotizaciones de la competencia (cacheado)."""
+    return _obtener_cotizaciones_cached(competidor_id, tipo_servicio)
 
 def guardar_cotizacion_competencia(competidor_id: int, tipo_servicio: str, precio: float,
                                    tipo_vehiculo: str = 'STD', km_estimados: int = None,
@@ -114,41 +162,43 @@ def guardar_cotizacion_competencia(competidor_id: int, tipo_servicio: str, preci
         'notas': notas
     }).execute()
 
+    limpiar_cache_cotizaciones()
     return result.data[0]['id'] if result.data else None
-
-
-def obtener_cotizaciones_competencia(competidor_id: int = None, tipo_servicio: str = None) -> list:
-    """Obtiene cotizaciones de la competencia."""
-    client = get_admin_client()
-
-    query = client.table('cotizaciones_competencia').select('*, competidores(nombre)')
-
-    if competidor_id:
-        query = query.eq('competidor_id', competidor_id)
-    if tipo_servicio:
-        query = query.eq('tipo_servicio', tipo_servicio)
-
-    result = query.order('fecha_captura', desc=True).execute()
-
-    # Formatear resultado para compatibilidad
-    datos = []
-    for row in result.data or []:
-        row['competidor_nombre'] = row.get('competidores', {}).get('nombre', '') if row.get('competidores') else ''
-        datos.append(row)
-
-    return datos
-
 
 def eliminar_cotizacion_competencia(cotizacion_id: int) -> bool:
     """Elimina una cotización."""
     client = get_admin_client()
     result = client.table('cotizaciones_competencia').delete().eq('id', cotizacion_id).execute()
+    limpiar_cache_cotizaciones()
     return len(result.data) > 0 if result.data else False
 
 
 # ============================================
-# VEHÍCULOS DE COMPETENCIA
+# VEHÍCULOS (con caché)
 # ============================================
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _obtener_vehiculos_cached(competidor_id: int = None, solo_activos: bool = True) -> list:
+    """Versión cacheada de obtener vehículos."""
+    client = get_admin_client()
+    query = client.table('vehiculos_competencia').select('*, competidores(nombre)')
+
+    if competidor_id:
+        query = query.eq('competidor_id', competidor_id)
+    if solo_activos:
+        query = query.eq('activo', True)
+
+    result = query.order('plazas', desc=True).execute()
+
+    datos = []
+    for row in result.data or []:
+        row['competidor_nombre'] = row.get('competidores', {}).get('nombre', '') if row.get('competidores') else ''
+        datos.append(row)
+    return datos
+
+def obtener_vehiculos_competencia(competidor_id: int = None, solo_activos: bool = True) -> list:
+    """Obtiene vehículos de la competencia (cacheado)."""
+    return _obtener_vehiculos_cached(competidor_id, solo_activos)
 
 def guardar_vehiculo_competencia(competidor_id: int, matricula: str = None, tipo_vehiculo: str = 'AUTOBUS',
                                  marca: str = '', modelo: str = '', plazas: int = None,
@@ -158,7 +208,6 @@ def guardar_vehiculo_competencia(competidor_id: int, matricula: str = None, tipo
     """Guarda un vehículo de competidor."""
     client = get_admin_client()
 
-    # Calcular edad
     edad = None
     if ano_matriculacion:
         edad = round(datetime.now().year - ano_matriculacion + (datetime.now().month / 12), 1)
@@ -180,8 +229,8 @@ def guardar_vehiculo_competencia(competidor_id: int, matricula: str = None, tipo
         'observaciones': observaciones
     }).execute()
 
+    limpiar_cache_vehiculos()
     return result.data[0]['id'] if result.data else None
-
 
 def actualizar_vehiculo_competencia(vehiculo_id: int, **kwargs) -> bool:
     """Actualiza un vehículo de la competencia."""
@@ -190,37 +239,14 @@ def actualizar_vehiculo_competencia(vehiculo_id: int, **kwargs) -> bool:
     if not kwargs:
         return False
 
-    # Recalcular edad si se actualiza año
     if 'ano_matriculacion' in kwargs and kwargs['ano_matriculacion']:
         kwargs['edad'] = round(datetime.now().year - kwargs['ano_matriculacion'] + (datetime.now().month / 12), 1)
 
     kwargs['fecha_actualizacion'] = datetime.now().isoformat()
 
     result = client.table('vehiculos_competencia').update(kwargs).eq('id', vehiculo_id).execute()
+    limpiar_cache_vehiculos()
     return len(result.data) > 0 if result.data else False
-
-
-def obtener_vehiculos_competencia(competidor_id: int = None, solo_activos: bool = True) -> list:
-    """Obtiene vehículos de la competencia."""
-    client = get_admin_client()
-
-    query = client.table('vehiculos_competencia').select('*, competidores(nombre)')
-
-    if competidor_id:
-        query = query.eq('competidor_id', competidor_id)
-    if solo_activos:
-        query = query.eq('activo', True)
-
-    result = query.order('plazas', desc=True).execute()
-
-    # Formatear resultado
-    datos = []
-    for row in result.data or []:
-        row['competidor_nombre'] = row.get('competidores', {}).get('nombre', '') if row.get('competidores') else ''
-        datos.append(row)
-
-    return datos
-
 
 def eliminar_vehiculo_competencia(vehiculo_id: int) -> bool:
     """Elimina un vehículo (soft delete)."""
@@ -229,8 +255,8 @@ def eliminar_vehiculo_competencia(vehiculo_id: int) -> bool:
         'activo': False,
         'fecha_actualizacion': datetime.now().isoformat()
     }).eq('id', vehiculo_id).execute()
+    limpiar_cache_vehiculos()
     return len(result.data) > 0 if result.data else False
-
 
 def importar_vehiculos_masivo(competidor_id: int, vehiculos: list) -> int:
     """Importa múltiples vehículos para un competidor."""
@@ -259,26 +285,30 @@ def importar_vehiculos_masivo(competidor_id: int, vehiculos: list) -> int:
 
 
 # ============================================
-# ESTADÍSTICAS Y ANÁLISIS
+# ESTADÍSTICAS (con caché)
 # ============================================
 
-def obtener_estadisticas_flota_competencia(competidor_id: int = None) -> list:
-    """Obtiene estadísticas de la flota de competidores."""
+@st.cache_data(ttl=300, show_spinner=False)
+def _obtener_estadisticas_flota_cached() -> list:
+    """Versión cacheada de estadísticas de flota."""
     client = get_admin_client()
 
-    # Obtener competidores activos
-    comp_query = client.table('competidores').select('id, nombre').eq('activo', True)
-    if competidor_id:
-        comp_query = comp_query.eq('id', competidor_id)
-    competidores = comp_query.execute().data or []
+    competidores = client.table('competidores').select('id, nombre').eq('activo', True).execute().data or []
+    vehiculos_todos = client.table('vehiculos_competencia').select('*').eq('activo', True).execute().data or []
+
+    # Agrupar vehículos por competidor
+    vehiculos_por_comp = {}
+    for v in vehiculos_todos:
+        cid = v['competidor_id']
+        if cid not in vehiculos_por_comp:
+            vehiculos_por_comp[cid] = []
+        vehiculos_por_comp[cid].append(v)
 
     stats = []
     for comp in competidores:
-        # Obtener vehículos del competidor
-        vehiculos = client.table('vehiculos_competencia').select('*')\
-            .eq('competidor_id', comp['id']).eq('activo', True).execute().data or []
-
+        vehiculos = vehiculos_por_comp.get(comp['id'], [])
         total = len(vehiculos)
+
         if total == 0:
             stats.append({
                 'competidor_id': comp['id'],
@@ -303,12 +333,6 @@ def obtener_estadisticas_flota_competencia(competidor_id: int = None) -> list:
         edades = [v.get('edad') for v in vehiculos if v.get('edad')]
         edad_media = round(sum(edades) / len(edades), 1) if edades else None
 
-        capacidad_total = sum(v.get('plazas') or 0 for v in vehiculos)
-        con_pmr = sum(1 for v in vehiculos if v.get('pmr'))
-        con_wc = sum(1 for v in vehiculos if v.get('wc'))
-        con_wifi = sum(1 for v in vehiculos if v.get('wifi'))
-        escolares = sum(1 for v in vehiculos if v.get('escolar'))
-
         stats.append({
             'competidor_id': comp['id'],
             'competidor': comp['nombre'],
@@ -317,21 +341,27 @@ def obtener_estadisticas_flota_competencia(competidor_id: int = None) -> list:
             'buses_medianos': buses_medianos,
             'microbuses': microbuses,
             'edad_media': edad_media,
-            'capacidad_total': capacidad_total,
-            'con_pmr': con_pmr,
-            'con_wc': con_wc,
-            'con_wifi': con_wifi,
-            'escolares': escolares
+            'capacidad_total': sum(v.get('plazas') or 0 for v in vehiculos),
+            'con_pmr': sum(1 for v in vehiculos if v.get('pmr')),
+            'con_wc': sum(1 for v in vehiculos if v.get('wc')),
+            'con_wifi': sum(1 for v in vehiculos if v.get('wifi')),
+            'escolares': sum(1 for v in vehiculos if v.get('escolar'))
         })
 
-    # Ordenar por total de vehículos
     stats.sort(key=lambda x: x['total_vehiculos'], reverse=True)
     return stats
 
+def obtener_estadisticas_flota_competencia(competidor_id: int = None) -> list:
+    """Obtiene estadísticas de la flota de competidores (cacheado)."""
+    stats = _obtener_estadisticas_flota_cached()
+    if competidor_id:
+        return [s for s in stats if s['competidor_id'] == competidor_id]
+    return stats
 
-def obtener_comparativa_flotas() -> dict:
-    """Obtiene una comparativa de flotas entre competidores."""
-    stats = obtener_estadisticas_flota_competencia()
+@st.cache_data(ttl=300, show_spinner=False)
+def _obtener_comparativa_flotas_cached() -> dict:
+    """Versión cacheada de comparativa de flotas."""
+    stats = _obtener_estadisticas_flota_cached()
 
     if not stats:
         return {'competidores': [], 'resumen': None}
@@ -339,7 +369,6 @@ def obtener_comparativa_flotas() -> dict:
     total_vehiculos = sum(s['total_vehiculos'] or 0 for s in stats)
     total_capacidad = sum(s['capacidad_total'] or 0 for s in stats)
 
-    # Calcular edad media ponderada
     edad_media_mercado = 0
     if total_vehiculos > 0:
         suma_ponderada = sum((s['edad_media'] or 0) * (s['total_vehiculos'] or 0) for s in stats)
@@ -356,9 +385,13 @@ def obtener_comparativa_flotas() -> dict:
         }
     }
 
+def obtener_comparativa_flotas() -> dict:
+    """Obtiene una comparativa de flotas entre competidores (cacheado)."""
+    return _obtener_comparativa_flotas_cached()
 
-def obtener_estadisticas_mercado(tipo_servicio: str = None) -> list:
-    """Obtiene estadísticas agregadas del mercado."""
+@st.cache_data(ttl=300, show_spinner=False)
+def _obtener_estadisticas_mercado_cached(tipo_servicio: str = None) -> list:
+    """Versión cacheada de estadísticas de mercado."""
     client = get_admin_client()
 
     query = client.table('cotizaciones_competencia').select('tipo_servicio, tipo_vehiculo, precio')
@@ -370,12 +403,11 @@ def obtener_estadisticas_mercado(tipo_servicio: str = None) -> list:
     if not result:
         return []
 
-    # Agrupar por tipo_servicio y tipo_vehiculo
     from collections import defaultdict
     grupos = defaultdict(list)
     for row in result:
         key = (row['tipo_servicio'], row['tipo_vehiculo'])
-        grupos[key].append(row['precio'])
+        grupos[key].append(float(row['precio']))
 
     stats = []
     for (tipo_serv, tipo_veh), precios in grupos.items():
@@ -390,24 +422,26 @@ def obtener_estadisticas_mercado(tipo_servicio: str = None) -> list:
 
     return stats
 
+def obtener_estadisticas_mercado(tipo_servicio: str = None) -> list:
+    """Obtiene estadísticas agregadas del mercado (cacheado)."""
+    return _obtener_estadisticas_mercado_cached(tipo_servicio)
 
-def obtener_ranking_competidores() -> list:
-    """Obtiene ranking de competidores por precio medio."""
+@st.cache_data(ttl=300, show_spinner=False)
+def _obtener_ranking_cached() -> list:
+    """Versión cacheada de ranking de competidores."""
     client = get_admin_client()
 
-    # Obtener cotizaciones con competidor
     result = client.table('cotizaciones_competencia').select('competidor_id, precio, competidores(nombre, segmento)').execute()
 
     if not result.data:
         return []
 
-    # Agrupar por competidor
     from collections import defaultdict
     grupos = defaultdict(lambda: {'precios': [], 'nombre': '', 'segmento': ''})
 
     for row in result.data:
         comp_id = row['competidor_id']
-        grupos[comp_id]['precios'].append(row['precio'])
+        grupos[comp_id]['precios'].append(float(row['precio']))
         if row.get('competidores'):
             grupos[comp_id]['nombre'] = row['competidores'].get('nombre', '')
             grupos[comp_id]['segmento'] = row['competidores'].get('segmento', '')
@@ -426,31 +460,27 @@ def obtener_ranking_competidores() -> list:
     ranking.sort(key=lambda x: x['precio_medio'])
     return ranking
 
+def obtener_ranking_competidores() -> list:
+    """Obtiene ranking de competidores por precio medio (cacheado)."""
+    return _obtener_ranking_cached()
 
 def obtener_posicion_por_servicio(tipo_servicio: str, tipo_vehiculo: str = None) -> dict:
     """Obtiene la posición de precios para un tipo de servicio."""
-    client = get_admin_client()
-
-    query = client.table('cotizaciones_competencia').select('competidor_id, precio, competidores(nombre)')\
-        .eq('tipo_servicio', tipo_servicio)
+    cotizaciones = obtener_cotizaciones_competencia(tipo_servicio=tipo_servicio)
 
     if tipo_vehiculo:
-        query = query.eq('tipo_vehiculo', tipo_vehiculo)
+        cotizaciones = [c for c in cotizaciones if c.get('tipo_vehiculo') == tipo_vehiculo]
 
-    result = query.execute().data or []
-
-    if not result:
+    if not cotizaciones:
         return {'posiciones': [], 'precio_medio': 0, 'precio_min': 0, 'precio_max': 0}
 
-    # Agrupar por competidor
     from collections import defaultdict
     grupos = defaultdict(lambda: {'precios': [], 'nombre': ''})
 
-    for row in result:
+    for row in cotizaciones:
         comp_id = row['competidor_id']
-        grupos[comp_id]['precios'].append(row['precio'])
-        if row.get('competidores'):
-            grupos[comp_id]['nombre'] = row['competidores'].get('nombre', '')
+        grupos[comp_id]['precios'].append(float(row['precio']))
+        grupos[comp_id]['nombre'] = row.get('competidor_nombre', '')
 
     posiciones = []
     for comp_id, data in grupos.items():
@@ -463,7 +493,7 @@ def obtener_posicion_por_servicio(tipo_servicio: str, tipo_vehiculo: str = None)
 
     posiciones.sort(key=lambda x: x['precio_medio'])
 
-    todos_precios = [row['precio'] for row in result]
+    todos_precios = [float(c['precio']) for c in cotizaciones]
 
     return {
         'posiciones': posiciones,
@@ -472,17 +502,12 @@ def obtener_posicion_por_servicio(tipo_servicio: str, tipo_vehiculo: str = None)
         'precio_max': max(todos_precios)
     }
 
-
 def detectar_alertas_competencia(umbral_diferencia: float = 15) -> list:
     """Detecta alertas cuando los precios de David difieren significativamente del mercado."""
-    # Esta función necesitaría integrarse con las tarifas de David
-    # Por ahora retorna lista vacía
     return []
-
 
 def comparar_con_tarifa_david(tipo_servicio: str, tipo_vehiculo: str, km: int, horas: float) -> dict:
     """Compara precios del mercado con tarifa de David."""
-    # Esta función necesitaría integrarse con las tarifas de David
     return {
         'precio_david': None,
         'resumen': None,
