@@ -60,7 +60,7 @@ def gestionar_usuarios():
     # Mostrar usuarios en tabla
     for user in usuarios.data:
         with st.container():
-            col1, col2, col3, col4 = st.columns([3, 2, 2, 2])
+            col1, col2, col3, col4, col5 = st.columns([3, 2, 2, 2, 2])
 
             with col1:
                 nombre = user['nombre'] or user['email'].split('@')[0]
@@ -80,7 +80,17 @@ def gestionar_usuarios():
                     st.caption("Nunca ha accedido")
 
             with col4:
-                # No permitir desactivar al propio usuario
+                # Cambiar rol (no permitir cambiar el propio rol)
+                if user['id'] != st.session_state.user['id']:
+                    nuevo_rol = 'usuario' if user['rol'] == 'admin' else 'admin'
+                    btn_label = "Hacer Usuario" if user['rol'] == 'admin' else "Hacer Admin"
+                    if st.button(btn_label, key=f"rol_{user['id']}", type="secondary"):
+                        admin_client.table('usuarios').update({'rol': nuevo_rol}).eq('id', user['id']).execute()
+                        st.success(f"Rol cambiado a {nuevo_rol}")
+                        st.rerun()
+
+            with col5:
+                # Activar/Desactivar (no permitir desactivar al propio usuario)
                 if user['id'] != st.session_state.user['id']:
                     if user['activo']:
                         if st.button("Desactivar", key=f"deact_{user['id']}", type="secondary"):
