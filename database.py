@@ -2,6 +2,7 @@ import sqlite3
 import os
 from datetime import datetime
 from pathlib import Path
+import streamlit as st
 
 # En Streamlit Cloud usar /tmp/ (único directorio escribible)
 if os.environ.get('STREAMLIT_SERVER_HEADLESS'):
@@ -434,13 +435,12 @@ def guardar_tipo_servicio(codigo: str, descripcion: str, categoria: str = ""):
     conn.commit()
     conn.close()
 
+@st.cache_data(ttl=600)
 def obtener_tipos_servicio_db():
-    """Obtiene todos los tipos de servicio definidos."""
+    """Obtiene todos los tipos de servicio definidos (cacheado)."""
     conn = get_connection()
     cursor = conn.cursor()
-
     cursor.execute('SELECT * FROM tipos_servicio ORDER BY codigo')
-
     tipos = cursor.fetchall()
     conn.close()
     return {t['codigo']: {'descripcion': t['descripcion'], 'categoria': t['categoria']} for t in tipos}
@@ -621,15 +621,14 @@ def guardar_tramo_comision(desde: float, hasta: float, porcentaje: float):
     conn.close()
 
 
+@st.cache_data(ttl=600)
 def obtener_tramos_comision():
-    """Obtiene todos los tramos de comisión activos."""
+    """Obtiene todos los tramos de comisión activos (cacheado)."""
     conn = get_connection()
     cursor = conn.cursor()
-
     cursor.execute('SELECT * FROM comisiones_tramos WHERE activo = 1 ORDER BY desde')
     tramos = cursor.fetchall()
     conn.close()
-
     return [dict(t) for t in tramos]
 
 
@@ -670,11 +669,11 @@ def guardar_bonus(nombre: str, tipo: str, condicion: str, valor_objetivo: float,
     conn.close()
 
 
+@st.cache_data(ttl=600)
 def obtener_bonus_objetivos():
-    """Obtiene todos los bonus activos."""
+    """Obtiene todos los bonus activos (cacheado)."""
     conn = get_connection()
     cursor = conn.cursor()
-
     cursor.execute('SELECT * FROM bonus_objetivos WHERE activo = 1')
     bonus = cursor.fetchall()
     conn.close()
@@ -719,15 +718,14 @@ def guardar_puntos_accion(accion: str, tipo_servicio: str, puntos: int, descripc
     conn.close()
 
 
+@st.cache_data(ttl=600)
 def obtener_puntos_acciones():
-    """Obtiene todas las acciones con puntos."""
+    """Obtiene todas las acciones con puntos (cacheado)."""
     conn = get_connection()
     cursor = conn.cursor()
-
     cursor.execute('SELECT * FROM puntos_acciones WHERE activo = 1')
     acciones = cursor.fetchall()
     conn.close()
-
     return [dict(a) for a in acciones]
 
 
@@ -768,15 +766,14 @@ def guardar_premio(nombre: str, puntos_requeridos: int, descripcion: str = ""):
     conn.close()
 
 
+@st.cache_data(ttl=600)
 def obtener_premios():
-    """Obtiene todos los premios activos."""
+    """Obtiene todos los premios activos (cacheado)."""
     conn = get_connection()
     cursor = conn.cursor()
-
     cursor.execute('SELECT * FROM puntos_premios WHERE activo = 1 ORDER BY puntos_requeridos')
     premios = cursor.fetchall()
     conn.close()
-
     return [dict(p) for p in premios]
 
 
@@ -1070,15 +1067,14 @@ def guardar_temporada(codigo: str, nombre: str, fecha_inicio: str, fecha_fin: st
     conn.close()
 
 
+@st.cache_data(ttl=600)
 def obtener_temporadas():
-    """Obtiene todas las temporadas activas."""
+    """Obtiene todas las temporadas activas (cacheado)."""
     conn = get_connection()
     cursor = conn.cursor()
-
     cursor.execute('SELECT * FROM temporadas WHERE activo = 1 ORDER BY fecha_inicio')
     temporadas = cursor.fetchall()
     conn.close()
-
     return [dict(t) for t in temporadas]
 
 
@@ -1128,15 +1124,14 @@ def guardar_tipo_bus(codigo: str, nombre: str, capacidad: int, precio_base_hora:
     conn.close()
 
 
+@st.cache_data(ttl=600)
 def obtener_tipos_bus():
-    """Obtiene todos los tipos de bus activos."""
+    """Obtiene todos los tipos de bus activos (cacheado)."""
     conn = get_connection()
     cursor = conn.cursor()
-
     cursor.execute('SELECT * FROM tipos_bus WHERE activo = 1 ORDER BY capacidad')
     tipos = cursor.fetchall()
     conn.close()
-
     return [dict(t) for t in tipos]
 
 
@@ -1166,15 +1161,14 @@ def guardar_tipo_cliente(codigo: str, nombre: str, multiplicador: float = 1.0):
     conn.close()
 
 
+@st.cache_data(ttl=600)
 def obtener_tipos_cliente():
-    """Obtiene todos los tipos de cliente activos."""
+    """Obtiene todos los tipos de cliente activos (cacheado)."""
     conn = get_connection()
     cursor = conn.cursor()
-
     cursor.execute('SELECT * FROM tipos_cliente WHERE activo = 1 ORDER BY nombre')
     tipos = cursor.fetchall()
     conn.close()
-
     return [dict(t) for t in tipos]
 
 
@@ -1204,15 +1198,14 @@ def guardar_tarifa_servicio(tipo_servicio: str, tipo_bus: str, precio_base: floa
     conn.close()
 
 
+@st.cache_data(ttl=600)
 def obtener_tarifas_servicio():
-    """Obtiene todas las tarifas por servicio."""
+    """Obtiene todas las tarifas por servicio (cacheado)."""
     conn = get_connection()
     cursor = conn.cursor()
-
     cursor.execute('SELECT * FROM tarifas_servicio WHERE activo = 1 ORDER BY tipo_servicio, tipo_bus')
     tarifas = cursor.fetchall()
     conn.close()
-
     return [dict(t) for t in tarifas]
 
 
