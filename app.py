@@ -2213,66 +2213,99 @@ elif pagina == "Analisis Mercado":
 
     # TAB 2: COTIZACIONES DE COMPETENCIA
     with tab2:
-        st.subheader("Registro de Cotizaciones")
+        st.subheader("Inteligencia de Precios")
 
         competidores = obtener_competidores()
 
         if not competidores:
             st.warning("Primero debes registrar al menos un competidor")
         else:
-            col_cot_form, col_cot_list = st.columns([1, 2])
+            # Obtener todas las cotizaciones para KPIs
+            todas_cotizaciones = obtener_cotizaciones_competencia()
 
-            with col_cot_form:
-                st.markdown("**Nueva Cotización**")
-                with st.form("form_cotizacion"):
-                    comp_sel = st.selectbox("Competidor*", [c['nombre'] for c in competidores])
-                    tipo_serv = st.selectbox("Tipo de Servicio*", [
-                        "TRANSFER", "EXCURSION", "ESCOLAR", "DEPORTIVO",
-                        "CONGRESO", "CIRCUITO", "DISCRECIONAL", "OTRO"
-                    ])
-                    tipo_veh = st.selectbox("Tipo de Vehículo", list(FACTOR_VEHICULO_NORM.keys()))
-                    precio_cot = st.number_input("Precio (€)*", min_value=0.0, step=10.0)
-                    km_cot = st.number_input("Kilómetros", min_value=0, step=10)
-                    horas_cot = st.number_input("Horas", min_value=0.0, step=0.5)
-                    origen_cot = st.text_input("Origen")
-                    destino_cot = st.text_input("Destino")
-                    fecha_cot = st.date_input("Fecha de la cotización", value=datetime.now())
-                    fuente_cot = st.text_input("Fuente", placeholder="Ej: Cliente, Web, Llamada")
-                    notas_cot = st.text_area("Notas", height=60)
+            # KPIs de cotizaciones
+            col_k1, col_k2, col_k3, col_k4 = st.columns(4)
+            total_cot = len(todas_cotizaciones)
+            competidores_con_cot = len(set(c['competidor_nombre'] for c in todas_cotizaciones)) if todas_cotizaciones else 0
+            precio_medio = sum(c['precio'] for c in todas_cotizaciones) / total_cot if total_cot > 0 else 0
+            servicios_cubiertos = len(set(c['tipo_servicio'] for c in todas_cotizaciones)) if todas_cotizaciones else 0
 
-                    if st.form_submit_button("Registrar Cotización", use_container_width=True):
-                        if comp_sel and precio_cot > 0:
-                            comp_id = next((c['id'] for c in competidores if c['nombre'] == comp_sel), None)
-                            if comp_id:
-                                guardar_cotizacion_competencia(
-                                    competidor_id=comp_id,
-                                    tipo_servicio=tipo_serv,
-                                    precio=precio_cot,
-                                    tipo_vehiculo=tipo_veh,
-                                    km_estimados=km_cot if km_cot > 0 else None,
-                                    duracion_horas=horas_cot if horas_cot > 0 else None,
-                                    origen=origen_cot,
-                                    destino=destino_cot,
-                                    fecha_captura=fecha_cot.strftime('%Y-%m-%d'),
-                                    fuente=fuente_cot,
-                                    notas=notas_cot
-                                )
-                                st.success("Cotización registrada")
-                                st.rerun()
-                        else:
-                            st.error("Competidor y precio son obligatorios")
+            col_k1.metric("📊 Total Cotizaciones", total_cot)
+            col_k2.metric("🏢 Competidores", competidores_con_cot)
+            col_k3.metric("💰 Precio Medio", f"{precio_medio:,.0f}€")
+            col_k4.metric("📋 Tipos Servicio", servicios_cubiertos)
 
-            with col_cot_list:
-                st.markdown("**Cotizaciones Registradas**")
+            st.divider()
 
-                # Filtros
-                col_f1, col_f2 = st.columns(2)
+            # Formulario en expander + Lista principal
+            col_form, col_list = st.columns([1, 2])
+
+            with col_form:
+                with st.expander("➕ Nueva Cotización", expanded=True):
+                    with st.form("form_cotizacion", clear_on_submit=True):
+                        comp_sel = st.selectbox("🏢 Competidor*", [c['nombre'] for c in competidores])
+
+                        col_s1, col_s2 = st.columns(2)
+                        with col_s1:
+                            tipo_serv = st.selectbox("📋 Servicio*", [
+                                "TRANSFER", "EXCURSION", "ESCOLAR", "DEPORTIVO",
+                                "CONGRESO", "CIRCUITO", "DISCRECIONAL", "OTRO"
+                            ])
+                        with col_s2:
+                            tipo_veh = st.selectbox("🚌 Vehículo", list(FACTOR_VEHICULO_NORM.keys()))
+
+                        col_p1, col_p2 = st.columns(2)
+                        with col_p1:
+                            precio_cot = st.number_input("💰 Precio (€)*", min_value=0.0, step=50.0, format="%.0f")
+                        with col_p2:
+                            fecha_cot = st.date_input("📅 Fecha", value=datetime.now())
+
+                        col_r1, col_r2 = st.columns(2)
+                        with col_r1:
+                            origen_cot = st.text_input("📍 Origen")
+                            km_cot = st.number_input("🛣️ Km", min_value=0, step=10)
+                        with col_r2:
+                            destino_cot = st.text_input("🎯 Destino")
+                            horas_cot = st.number_input("⏱️ Horas", min_value=0.0, step=0.5)
+
+                        fuente_cot = st.selectbox("📡 Fuente", ["Cliente", "Web competidor", "Llamada", "Conocido", "Licitación", "Otra"])
+                        notas_cot = st.text_area("📝 Notas", height=60, placeholder="Detalles adicionales...")
+
+                        if st.form_submit_button("💾 Guardar Cotización", use_container_width=True, type="primary"):
+                            if comp_sel and precio_cot > 0:
+                                comp_id = next((c['id'] for c in competidores if c['nombre'] == comp_sel), None)
+                                if comp_id:
+                                    guardar_cotizacion_competencia(
+                                        competidor_id=comp_id,
+                                        tipo_servicio=tipo_serv,
+                                        precio=precio_cot,
+                                        tipo_vehiculo=tipo_veh,
+                                        km_estimados=km_cot if km_cot > 0 else None,
+                                        duracion_horas=horas_cot if horas_cot > 0 else None,
+                                        origen=origen_cot,
+                                        destino=destino_cot,
+                                        fecha_captura=fecha_cot.strftime('%Y-%m-%d'),
+                                        fuente=fuente_cot,
+                                        notas=notas_cot
+                                    )
+                                    st.success("✅ Cotización registrada")
+                                    st.rerun()
+                            else:
+                                st.error("Competidor y precio son obligatorios")
+
+            with col_list:
+                st.markdown("### 📋 Cotizaciones Registradas")
+
+                # Filtros en línea
+                col_f1, col_f2, col_f3 = st.columns(3)
                 with col_f1:
-                    filtro_comp = st.selectbox("Filtrar por competidor", ["Todos"] + [c['nombre'] for c in competidores], key="filtro_comp_cot")
+                    filtro_comp = st.selectbox("Competidor", ["Todos"] + [c['nombre'] for c in competidores], key="filtro_comp_cot")
                 with col_f2:
-                    filtro_tipo = st.selectbox("Filtrar por tipo", ["Todos", "TRANSFER", "EXCURSION", "ESCOLAR", "DEPORTIVO", "CONGRESO", "CIRCUITO", "DISCRECIONAL"], key="filtro_tipo_cot")
+                    filtro_tipo = st.selectbox("Tipo", ["Todos", "TRANSFER", "EXCURSION", "ESCOLAR", "DEPORTIVO", "CONGRESO", "CIRCUITO", "DISCRECIONAL"], key="filtro_tipo_cot")
+                with col_f3:
+                    orden = st.selectbox("Ordenar por", ["Fecha ↓", "Precio ↓", "Precio ↑", "Competidor"], key="orden_cot")
 
-                # Obtener cotizaciones
+                # Obtener cotizaciones filtradas
                 comp_id_filtro = None
                 if filtro_comp != "Todos":
                     comp_id_filtro = next((c['id'] for c in competidores if c['nombre'] == filtro_comp), None)
@@ -2284,13 +2317,48 @@ elif pagina == "Analisis Mercado":
 
                 if cotizaciones:
                     df_cot = pd.DataFrame(cotizaciones)
-                    df_cot_show = df_cot[['competidor_nombre', 'tipo_servicio', 'tipo_vehiculo', 'precio', 'fecha_captura']].copy()
-                    df_cot_show.columns = ['Competidor', 'Servicio', 'Vehículo', 'Precio', 'Fecha']
-                    df_cot_show['Precio'] = df_cot_show['Precio'].apply(lambda x: f"{x:,.0f}€")
 
-                    st.dataframe(df_cot_show, use_container_width=True, hide_index=True)
+                    # Ordenar según selección
+                    if orden == "Precio ↓":
+                        df_cot = df_cot.sort_values('precio', ascending=False)
+                    elif orden == "Precio ↑":
+                        df_cot = df_cot.sort_values('precio', ascending=True)
+                    elif orden == "Competidor":
+                        df_cot = df_cot.sort_values('competidor_nombre')
+
+                    # Mostrar resumen rápido
+                    st.caption(f"Mostrando {len(df_cot)} cotizaciones | Precio medio: {df_cot['precio'].mean():,.0f}€ | Rango: {df_cot['precio'].min():,.0f}€ - {df_cot['precio'].max():,.0f}€")
+
+                    # Tabla mejorada
+                    df_cot_show = df_cot[['competidor_nombre', 'tipo_servicio', 'tipo_vehiculo', 'precio', 'origen', 'destino', 'fecha_captura']].copy()
+                    df_cot_show['Ruta'] = df_cot_show.apply(lambda r: f"{r['origen'] or '?'} → {r['destino'] or '?'}" if r['origen'] or r['destino'] else '-', axis=1)
+                    df_cot_show = df_cot_show[['competidor_nombre', 'tipo_servicio', 'tipo_vehiculo', 'precio', 'Ruta', 'fecha_captura']]
+                    df_cot_show.columns = ['Competidor', 'Servicio', 'Vehículo', 'Precio', 'Ruta', 'Fecha']
+
+                    st.dataframe(
+                        df_cot_show,
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            'Precio': st.column_config.NumberColumn(format="%.0f €"),
+                            'Fecha': st.column_config.DateColumn(format="DD/MM/YYYY")
+                        }
+                    )
+
+                    # Gráfico rápido de precios por competidor
+                    if len(df_cot) >= 3:
+                        with st.expander("📊 Ver gráfico de precios"):
+                            fig_precios = px.box(
+                                df_cot,
+                                x='competidor_nombre',
+                                y='precio',
+                                color='tipo_servicio',
+                                labels={'competidor_nombre': 'Competidor', 'precio': 'Precio (€)', 'tipo_servicio': 'Servicio'}
+                            )
+                            fig_precios.update_layout(height=300, showlegend=True)
+                            st.plotly_chart(fig_precios, use_container_width=True)
                 else:
-                    st.info("No hay cotizaciones registradas")
+                    st.info("No hay cotizaciones registradas. Añade la primera usando el formulario.")
 
     # TAB 3: FLOTAS DE COMPETIDORES
     with tab3:
