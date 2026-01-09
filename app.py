@@ -1903,7 +1903,117 @@ elif pagina == "Analisis Mercado":
     st.title("📊 Análisis de Mercado")
     st.caption("Seguimiento de competencia y posicionamiento de precios")
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏢 Competidores", "💰 Cotizaciones", "🚌 Flotas", "📈 Análisis", "⚠️ Alertas"])
+    tab0, tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Dashboard", "🏢 Competidores", "💰 Cotizaciones", "🚌 Flotas", "📈 Análisis", "⚠️ Alertas"])
+
+    # TAB 0: DASHBOARD EJECUTIVO
+    with tab0:
+        st.subheader("Dashboard Ejecutivo")
+
+        # Obtener datos
+        comparativa = obtener_comparativa_flotas()
+        competidores = obtener_competidores()
+        stats_flota = comparativa.get('competidores', [])
+        resumen = comparativa.get('resumen', {})
+
+        # KPIs PRINCIPALES
+        col_kpi1, col_kpi2, col_kpi3, col_kpi4 = st.columns(4)
+
+        total_competidores = resumen.get('total_competidores', 0) if resumen else 0
+        total_vehiculos = resumen.get('total_vehiculos_mercado', 0) if resumen else 0
+        total_capacidad = resumen.get('capacidad_total_mercado', 0) if resumen else 0
+        edad_media = resumen.get('edad_media_mercado', 0) if resumen else 0
+
+        with col_kpi1:
+            st.metric(label="🏢 Competidores Activos", value=total_competidores)
+        with col_kpi2:
+            st.metric(label="🚌 Vehículos Mercado", value=f"{total_vehiculos:,}")
+        with col_kpi3:
+            st.metric(label="👥 Capacidad Total", value=f"{total_capacidad:,} plazas")
+        with col_kpi4:
+            st.metric(label="📅 Edad Media Flotas", value=f"{edad_media:.1f} años")
+
+        st.divider()
+
+        # GRÁFICOS PRINCIPALES
+        if stats_flota:
+            col_chart1, col_chart2 = st.columns(2)
+
+            with col_chart1:
+                st.markdown("**Cuota de Mercado (por capacidad)**")
+                # Filtrar solo competidores con vehículos
+                stats_con_vehiculos = [s for s in stats_flota if s['capacidad_total'] and s['capacidad_total'] > 0]
+                if stats_con_vehiculos:
+                    df_cuota = pd.DataFrame(stats_con_vehiculos)
+                    fig_pie = px.pie(
+                        df_cuota,
+                        values='capacidad_total',
+                        names='competidor',
+                        hole=0.4,
+                        color_discrete_sequence=px.colors.qualitative.Set3
+                    )
+                    fig_pie.update_traces(textposition='inside', textinfo='percent+label')
+                    fig_pie.update_layout(
+                        showlegend=False,
+                        height=350,
+                        margin=dict(t=20, b=20, l=20, r=20)
+                    )
+                    st.plotly_chart(fig_pie, use_container_width=True)
+                else:
+                    st.info("No hay datos de flotas registrados")
+
+            with col_chart2:
+                st.markdown("**Top 10 Competidores por Tamaño de Flota**")
+                stats_con_vehiculos = [s for s in stats_flota if s['total_vehiculos'] and s['total_vehiculos'] > 0]
+                if stats_con_vehiculos:
+                    top_10 = sorted(stats_con_vehiculos, key=lambda x: x['total_vehiculos'], reverse=True)[:10]
+                    df_top = pd.DataFrame(top_10)
+                    fig_bar = px.bar(
+                        df_top.sort_values('total_vehiculos'),
+                        x='total_vehiculos',
+                        y='competidor',
+                        orientation='h',
+                        color='total_vehiculos',
+                        color_continuous_scale='Blues',
+                        text='total_vehiculos'
+                    )
+                    fig_bar.update_traces(textposition='outside')
+                    fig_bar.update_layout(
+                        showlegend=False,
+                        coloraxis_showscale=False,
+                        height=350,
+                        margin=dict(t=20, b=20, l=20, r=20),
+                        xaxis_title="Vehículos",
+                        yaxis_title=""
+                    )
+                    st.plotly_chart(fig_bar, use_container_width=True)
+                else:
+                    st.info("No hay datos de flotas registrados")
+
+        # RESUMEN RÁPIDO
+        st.divider()
+        col_resumen1, col_resumen2, col_resumen3 = st.columns(3)
+
+        if stats_flota:
+            stats_con_datos = [s for s in stats_flota if s['total_vehiculos'] and s['total_vehiculos'] > 0]
+            if stats_con_datos:
+                # Líder del mercado
+                lider = max(stats_con_datos, key=lambda x: x['total_vehiculos'])
+                with col_resumen1:
+                    st.info(f"**🏆 Líder del mercado:** {lider['competidor']} ({lider['total_vehiculos']} vehículos)")
+
+                # Flota más joven
+                stats_con_edad = [s for s in stats_con_datos if s['edad_media'] and s['edad_media'] > 0]
+                if stats_con_edad:
+                    mas_joven = min(stats_con_edad, key=lambda x: x['edad_media'])
+                    with col_resumen2:
+                        st.success(f"**🌟 Flota más joven:** {mas_joven['competidor']} ({mas_joven['edad_media']:.1f} años)")
+
+                # Mayor capacidad
+                max_capacidad = max(stats_con_datos, key=lambda x: x['capacidad_total'] or 0)
+                with col_resumen3:
+                    st.warning(f"**🚌 Mayor capacidad:** {max_capacidad['competidor']} ({max_capacidad['capacidad_total']:,} plazas)")
+        else:
+            st.info("Añade vehículos de competidores en la pestaña 'Flotas' para ver el dashboard")
 
     # TAB 1: GESTIÓN DE COMPETIDORES
     with tab1:
@@ -2138,9 +2248,79 @@ elif pagina == "Analisis Mercado":
 
             st.divider()
 
-            # Lista de vehículos
-            st.markdown("**Vehículos Registrados**")
-            filtro_comp_veh = st.selectbox("Filtrar por competidor", ["Todos"] + [c['nombre'] for c in competidores], key="filtro_veh")
+            # ANÁLISIS AVANZADO DE FLOTAS
+            st.markdown("### 📊 Análisis Avanzado de Flotas")
+
+            comparativa = obtener_comparativa_flotas()
+            if comparativa['competidores']:
+                df_anal = pd.DataFrame(comparativa['competidores'])
+                df_anal_filtrado = df_anal[df_anal['total_vehiculos'] > 0].copy()
+
+                if len(df_anal_filtrado) > 0:
+                    col_graf1, col_graf2 = st.columns(2)
+
+                    with col_graf1:
+                        st.markdown("**Edad vs Capacidad (tamaño = nº vehículos)**")
+                        fig_scatter = px.scatter(
+                            df_anal_filtrado,
+                            x='edad_media',
+                            y='capacidad_total',
+                            size='total_vehiculos',
+                            color='competidor',
+                            hover_data=['buses_grandes', 'buses_medianos', 'microbuses'],
+                            labels={'edad_media': 'Edad Media (años)', 'capacidad_total': 'Capacidad Total (plazas)'},
+                            size_max=50
+                        )
+                        fig_scatter.update_layout(height=400, showlegend=False)
+                        st.plotly_chart(fig_scatter, use_container_width=True)
+
+                    with col_graf2:
+                        st.markdown("**Composición de Flotas**")
+                        df_stacked = df_anal_filtrado[['competidor', 'buses_grandes', 'buses_medianos', 'microbuses']].copy()
+                        df_stacked = df_stacked.melt(id_vars='competidor', var_name='Tipo', value_name='Cantidad')
+                        df_stacked['Tipo'] = df_stacked['Tipo'].replace({
+                            'buses_grandes': 'Grandes (50+)',
+                            'buses_medianos': 'Medianos (30-49)',
+                            'microbuses': 'Micros (<30)'
+                        })
+                        fig_stacked = px.bar(
+                            df_stacked,
+                            x='competidor',
+                            y='Cantidad',
+                            color='Tipo',
+                            barmode='stack',
+                            color_discrete_map={'Grandes (50+)': '#1f77b4', 'Medianos (30-49)': '#ff7f0e', 'Micros (<30)': '#2ca02c'}
+                        )
+                        fig_stacked.update_layout(height=400, xaxis_tickangle=-45)
+                        st.plotly_chart(fig_stacked, use_container_width=True)
+
+                    # Métricas de calidad de flota
+                    st.markdown("**Indicadores de Calidad de Flota**")
+                    df_calidad = df_anal_filtrado.copy()
+                    df_calidad['% PMR'] = (df_calidad['con_pmr'] / df_calidad['total_vehiculos'] * 100).round(1)
+                    df_calidad['% Escolar'] = (df_calidad['escolares'] / df_calidad['total_vehiculos'] * 100).round(1)
+                    df_calidad['% WiFi'] = (df_calidad['con_wifi'] / df_calidad['total_vehiculos'] * 100).round(1)
+                    # Índice de modernidad: 100 - (edad_media * 5), limitado entre 0-100
+                    df_calidad['Modernidad'] = df_calidad['edad_media'].apply(lambda x: max(0, min(100, 100 - (x * 5))) if x else 0).round(0)
+
+                    df_calidad_show = df_calidad[['competidor', 'total_vehiculos', 'edad_media', '% PMR', '% Escolar', '% WiFi', 'Modernidad']].copy()
+                    df_calidad_show.columns = ['Competidor', 'Vehículos', 'Edad Media', '% PMR', '% Escolar', '% WiFi', 'Índice Modernidad']
+                    st.dataframe(df_calidad_show, use_container_width=True, hide_index=True)
+
+            st.divider()
+
+            # Lista de vehículos con FILTROS AVANZADOS
+            st.markdown("### 🚌 Vehículos Registrados")
+
+            col_f1, col_f2, col_f3, col_f4 = st.columns(4)
+            with col_f1:
+                filtro_comp_veh = st.selectbox("Competidor", ["Todos"] + [c['nombre'] for c in competidores], key="filtro_veh")
+            with col_f2:
+                filtro_tipo_veh = st.selectbox("Tipo vehículo", ["Todos", "AUTOBUS", "MINIBUS", "MICROBUS", "TURISMO"], key="filtro_tipo_veh")
+            with col_f3:
+                filtro_distintivo = st.selectbox("Distintivo", ["Todos", "0", "ECO", "C", "B", "Sin distintivo"], key="filtro_distintivo")
+            with col_f4:
+                filtro_antiguedad = st.selectbox("Antigüedad", ["Todos", "< 5 años", "5-10 años", "> 10 años"], key="filtro_antiguedad")
 
             comp_id_filtro_veh = None
             if filtro_comp_veh != "Todos":
@@ -2150,20 +2330,55 @@ elif pagina == "Analisis Mercado":
 
             if vehiculos:
                 df_veh = pd.DataFrame(vehiculos)
-                df_veh_show = df_veh[['competidor_nombre', 'matricula', 'marca', 'modelo', 'plazas',
-                                      'ano_matriculacion', 'edad', 'distintivo_ambiental']].copy()
-                df_veh_show.columns = ['Competidor', 'Matrícula', 'Marca', 'Modelo', 'Plazas', 'Año', 'Edad', 'Distintivo']
-                df_veh_show['Matrícula'] = df_veh_show['Matrícula'].fillna('-')
-                st.dataframe(df_veh_show, use_container_width=True, hide_index=True)
 
-                # Botón para eliminar
-                if st.checkbox("Mostrar opciones de eliminación", key="show_del_veh"):
+                # Aplicar filtros adicionales
+                if filtro_tipo_veh != "Todos":
+                    df_veh = df_veh[df_veh['tipo_vehiculo'] == filtro_tipo_veh]
+                if filtro_distintivo != "Todos":
+                    df_veh = df_veh[df_veh['distintivo_ambiental'] == filtro_distintivo]
+                if filtro_antiguedad != "Todos":
+                    if filtro_antiguedad == "< 5 años":
+                        df_veh = df_veh[df_veh['edad'] < 5]
+                    elif filtro_antiguedad == "5-10 años":
+                        df_veh = df_veh[(df_veh['edad'] >= 5) & (df_veh['edad'] <= 10)]
+                    else:  # > 10 años
+                        df_veh = df_veh[df_veh['edad'] > 10]
+
+                st.caption(f"Mostrando {len(df_veh)} vehículos")
+
+                if len(df_veh) > 0:
+                    # Histograma de antigüedad
+                    col_hist, col_table = st.columns([1, 2])
+                    with col_hist:
+                        st.markdown("**Distribución por Antigüedad**")
+                        fig_hist = px.histogram(
+                            df_veh,
+                            x='edad',
+                            nbins=10,
+                            labels={'edad': 'Edad (años)', 'count': 'Vehículos'},
+                            color_discrete_sequence=['#3366cc']
+                        )
+                        fig_hist.update_layout(height=300, margin=dict(t=20, b=20))
+                        st.plotly_chart(fig_hist, use_container_width=True)
+
+                    with col_table:
+                        df_veh_show = df_veh[['competidor_nombre', 'matricula', 'marca', 'modelo', 'plazas',
+                                              'ano_matriculacion', 'edad', 'distintivo_ambiental']].copy()
+                        df_veh_show.columns = ['Competidor', 'Matrícula', 'Marca', 'Modelo', 'Plazas', 'Año', 'Edad', 'Distintivo']
+                        df_veh_show['Matrícula'] = df_veh_show['Matrícula'].fillna('-')
+                        st.dataframe(df_veh_show, use_container_width=True, hide_index=True, height=300)
+                else:
+                    st.info("No hay vehículos que coincidan con los filtros")
+
+                # Botón para eliminar (usar datos filtrados)
+                if len(df_veh) > 0 and st.checkbox("Mostrar opciones de eliminación", key="show_del_veh"):
+                    veh_list = df_veh.to_dict('records')
                     veh_eliminar = st.selectbox("Seleccionar vehículo a eliminar",
-                                                 [f"{v['competidor_nombre']} - {v['matricula'] or 'Sin matrícula'} ({v['marca']} {v['modelo']})" for v in vehiculos],
+                                                 [f"{v['competidor_nombre']} - {v['matricula'] or 'Sin matrícula'} ({v['marca']} {v['modelo']})" for v in veh_list],
                                                  key="veh_del_select")
                     if st.button("Eliminar vehículo", type="secondary"):
-                        idx = [f"{v['competidor_nombre']} - {v['matricula'] or 'Sin matrícula'} ({v['marca']} {v['modelo']})" for v in vehiculos].index(veh_eliminar)
-                        eliminar_vehiculo_competencia(vehiculos[idx]['id'])
+                        idx = [f"{v['competidor_nombre']} - {v['matricula'] or 'Sin matrícula'} ({v['marca']} {v['modelo']})" for v in veh_list].index(veh_eliminar)
+                        eliminar_vehiculo_competencia(veh_list[idx]['id'])
                         st.success("Vehículo eliminado")
                         st.rerun()
             else:
@@ -2231,6 +2446,70 @@ elif pagina == "Analisis Mercado":
                 fig3.update_layout(yaxis={'categoryorder': 'total ascending'})
                 st.plotly_chart(fig3, use_container_width=True)
 
+            # ANÁLISIS AVANZADO DE PRECIOS
+            st.markdown("---")
+            st.markdown("### 📊 Análisis Avanzado de Precios")
+
+            # Obtener todas las cotizaciones para análisis detallado
+            cotizaciones_todas = obtener_cotizaciones_competencia()
+
+            if cotizaciones_todas:
+                df_cots = pd.DataFrame(cotizaciones_todas)
+
+                col_box, col_heat = st.columns(2)
+
+                with col_box:
+                    st.markdown("**Distribución de Precios por Servicio (Box Plot)**")
+                    fig_box = px.box(
+                        df_cots,
+                        x='tipo_servicio',
+                        y='precio',
+                        color='tipo_servicio',
+                        labels={'tipo_servicio': 'Tipo de Servicio', 'precio': 'Precio (€)'},
+                        points='all'
+                    )
+                    fig_box.update_layout(showlegend=False, height=400)
+                    st.plotly_chart(fig_box, use_container_width=True)
+
+                with col_heat:
+                    st.markdown("**Matriz Competidor × Servicio (Precio Medio)**")
+                    # Crear matriz pivote
+                    pivot_data = df_cots.pivot_table(
+                        values='precio',
+                        index='competidor_nombre',
+                        columns='tipo_servicio',
+                        aggfunc='mean'
+                    ).round(0)
+
+                    if not pivot_data.empty:
+                        fig_heat = px.imshow(
+                            pivot_data,
+                            labels=dict(x="Tipo de Servicio", y="Competidor", color="Precio (€)"),
+                            color_continuous_scale='RdYlGn_r',
+                            aspect='auto',
+                            text_auto='.0f'
+                        )
+                        fig_heat.update_layout(height=400)
+                        st.plotly_chart(fig_heat, use_container_width=True)
+                    else:
+                        st.info("No hay suficientes datos para el heatmap")
+
+                # Tabla resumen con ranking
+                st.markdown("**Ranking Detallado por Tipo de Servicio**")
+                df_ranking_detalle = df_cots.groupby(['tipo_servicio', 'competidor_nombre']).agg({
+                    'precio': ['mean', 'min', 'max', 'count']
+                }).round(0)
+                df_ranking_detalle.columns = ['Precio Medio', 'Mín', 'Máx', 'Cotizaciones']
+                df_ranking_detalle = df_ranking_detalle.reset_index()
+                df_ranking_detalle.columns = ['Servicio', 'Competidor', 'Precio Medio', 'Mín', 'Máx', 'Cotizaciones']
+                df_ranking_detalle = df_ranking_detalle.sort_values(['Servicio', 'Precio Medio'])
+
+                # Añadir ranking por servicio
+                df_ranking_detalle['Ranking'] = df_ranking_detalle.groupby('Servicio').cumcount() + 1
+
+                st.dataframe(df_ranking_detalle[['Servicio', 'Ranking', 'Competidor', 'Precio Medio', 'Mín', 'Máx', 'Cotizaciones']],
+                           use_container_width=True, hide_index=True)
+
             # Comparador con tarifa David
             st.markdown("---")
             st.subheader("🔍 Comparador con Tarifas David")
@@ -2275,28 +2554,109 @@ elif pagina == "Analisis Mercado":
 
     # TAB 5: ALERTAS
     with tab5:
-        st.subheader("Alertas de Competencia")
+        st.subheader("Panel de Alertas")
 
         umbral = st.slider("Umbral de diferencia (%)", min_value=5, max_value=50, value=15)
 
         alertas = detectar_alertas_competencia(umbral_diferencia=umbral)
 
-        if alertas:
-            for alerta in alertas:
-                if alerta['alerta'] == 'MÁS CARO':
-                    st.error(f"⚠️ **{alerta['tipo_servicio']}** ({alerta['tipo_vehiculo']}): David está **{abs(alerta['diferencia_pct'])}% más caro** que el mercado")
-                else:
-                    st.success(f"✅ **{alerta['tipo_servicio']}** ({alerta['tipo_vehiculo']}): David está **{abs(alerta['diferencia_pct'])}% más barato** que el mercado")
+        # DASHBOARD DE CONTADORES
+        col_count1, col_count2, col_count3, col_count4 = st.columns(4)
 
-            st.markdown("---")
-            st.markdown("**Resumen de alertas:**")
-            df_alertas = pd.DataFrame(alertas)
-            df_alertas['precio_david'] = df_alertas['precio_david'].apply(lambda x: f"{x:,.0f}€")
-            df_alertas['precio_mercado'] = df_alertas['precio_mercado'].apply(lambda x: f"{x:,.0f}€")
-            df_alertas['diferencia_pct'] = df_alertas['diferencia_pct'].apply(lambda x: f"{x:+.1f}%")
-            st.dataframe(df_alertas, use_container_width=True, hide_index=True)
+        alertas_caras = [a for a in alertas if a['alerta'] == 'MÁS CARO'] if alertas else []
+        alertas_baratas = [a for a in alertas if a['alerta'] == 'MÁS BARATO'] if alertas else []
+
+        with col_count1:
+            st.metric("⚠️ Alertas Totales", len(alertas) if alertas else 0)
+        with col_count2:
+            st.metric("🔴 Más Caro", len(alertas_caras), help="Servicios donde David está por encima del mercado")
+        with col_count3:
+            st.metric("🟢 Más Barato", len(alertas_baratas), help="Servicios donde David está por debajo del mercado")
+        with col_count4:
+            # Calcular ahorro/pérdida potencial
+            if alertas_caras:
+                perdida_pct = sum(a['diferencia_pct'] for a in alertas_caras) / len(alertas_caras)
+                st.metric("📉 Diferencia Media", f"{perdida_pct:+.1f}%", help="Diferencia media en servicios donde estamos más caros")
+            else:
+                st.metric("📉 Diferencia Media", "0%")
+
+        st.divider()
+
+        if alertas:
+            col_alertas, col_detalle = st.columns([1, 1])
+
+            with col_alertas:
+                st.markdown("### ⚠️ Alertas Activas")
+
+                # Primero las alertas de "más caro" (críticas)
+                if alertas_caras:
+                    st.markdown("**🔴 Servicios donde estamos más caros:**")
+                    for alerta in alertas_caras:
+                        st.error(f"**{alerta['tipo_servicio']}** ({alerta['tipo_vehiculo']}): +{abs(alerta['diferencia_pct'])}% vs mercado")
+
+                # Luego las de "más barato" (oportunidades)
+                if alertas_baratas:
+                    st.markdown("**🟢 Servicios donde estamos más baratos:**")
+                    for alerta in alertas_baratas:
+                        st.success(f"**{alerta['tipo_servicio']}** ({alerta['tipo_vehiculo']}): -{abs(alerta['diferencia_pct'])}% vs mercado")
+
+            with col_detalle:
+                st.markdown("### 📊 Análisis de Impacto")
+
+                df_alertas = pd.DataFrame(alertas)
+
+                # Gráfico de barras de diferencias
+                fig_diff = px.bar(
+                    df_alertas,
+                    x='tipo_servicio',
+                    y='diferencia_pct',
+                    color='alerta',
+                    color_discrete_map={'MÁS CARO': '#e74c3c', 'MÁS BARATO': '#27ae60'},
+                    labels={'tipo_servicio': 'Servicio', 'diferencia_pct': 'Diferencia (%)'},
+                    text='diferencia_pct'
+                )
+                fig_diff.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
+                fig_diff.update_layout(height=300, showlegend=True)
+                st.plotly_chart(fig_diff, use_container_width=True)
+
+            # Tabla detallada
+            st.divider()
+            st.markdown("### 📋 Detalle de Alertas")
+
+            df_alertas_show = df_alertas.copy()
+            df_alertas_show['Ajuste Sugerido'] = df_alertas_show.apply(
+                lambda r: f"Bajar a {r['precio_mercado']:,.0f}€" if r['alerta'] == 'MÁS CARO' else "Mantener/Subir",
+                axis=1
+            )
+            df_alertas_show['precio_david'] = df_alertas_show['precio_david'].apply(lambda x: f"{x:,.0f}€")
+            df_alertas_show['precio_mercado'] = df_alertas_show['precio_mercado'].apply(lambda x: f"{x:,.0f}€")
+            df_alertas_show['diferencia_pct'] = df_alertas_show['diferencia_pct'].apply(lambda x: f"{x:+.1f}%")
+
+            st.dataframe(
+                df_alertas_show[['tipo_servicio', 'tipo_vehiculo', 'precio_david', 'precio_mercado', 'diferencia_pct', 'alerta', 'Ajuste Sugerido']],
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    'tipo_servicio': 'Servicio',
+                    'tipo_vehiculo': 'Vehículo',
+                    'precio_david': 'Precio David',
+                    'precio_mercado': 'Precio Mercado',
+                    'diferencia_pct': 'Diferencia',
+                    'alerta': 'Estado'
+                }
+            )
+
+            # Resumen ejecutivo
+            st.divider()
+            st.markdown("### 💡 Recomendaciones")
+            if alertas_caras:
+                servicios_caros = ", ".join([f"{a['tipo_servicio']}" for a in alertas_caras])
+                st.warning(f"**Revisar precios en:** {servicios_caros}. Estos servicios están significativamente por encima del mercado.")
+            if alertas_baratas:
+                st.info("Los servicios donde estamos más baratos representan una ventaja competitiva. Considerar si hay margen para subir precios sin perder competitividad.")
         else:
-            st.success("✅ No hay alertas de precios. Los precios de David están dentro del rango del mercado.")
+            st.success("✅ **Situación óptima:** No hay alertas de precios. Los precios de David están dentro del rango del mercado.")
+            st.balloons()
 
 
 # ============================================
