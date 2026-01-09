@@ -3900,6 +3900,15 @@ elif pagina == "Analisis Conversion":
     if 'Estado presupuesto' in df_tabla.columns:
         df_tabla['Estado presupuesto'] = df_tabla['Estado presupuesto'].map(estados_map).fillna(df_tabla['Estado presupuesto'])
 
+    # Mapear tipos de servicio a descripción
+    if 'Tipo Servicio' in df_tabla.columns:
+        def get_tipo_desc(codigo):
+            if pd.isna(codigo):
+                return codigo
+            desc = tipos_guardados.get(codigo, {}).get('descripcion', '')
+            return normalizar_texto(desc) if desc else codigo
+        df_tabla['Tipo Servicio'] = df_tabla['Tipo Servicio'].apply(get_tipo_desc)
+
     # Mostrar resumen
     total_lineas = len(df_tabla)
     total_presupuestos_unicos = df_conv['Cod. Presupuesto'].nunique()
