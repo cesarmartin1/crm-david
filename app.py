@@ -1905,6 +1905,9 @@ elif pagina == "Analisis Mercado":
     st.title("📊 Análisis de Mercado")
     st.caption("Seguimiento de competencia y posicionamiento de precios")
 
+    # Nombre de la empresa propia (aparece en gráficos, NO en selectores)
+    EMPRESA_PROPIA = "David"
+
     # Placeholder de carga inicial
     loading_placeholder = st.empty()
 
@@ -1919,6 +1922,10 @@ elif pagina == "Analisis Mercado":
 
     # Limpiar placeholder
     loading_placeholder.empty()
+
+    # Separar: todos para gráficos, solo rivales para selectores
+    competidores_todos = competidores_data
+    competidores_rivales = [c for c in competidores_data if c['nombre'] != EMPRESA_PROPIA]
 
     tab0, tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Dashboard", "🏢 Competidores", "💰 Cotizaciones", "🚌 Flotas", "📈 Análisis", "⚠️ Alertas"])
 
@@ -2036,10 +2043,10 @@ elif pagina == "Analisis Mercado":
     with tab1:
         st.subheader("Gestión de Competidores")
 
-        competidores = competidores_data
+        competidores = competidores_rivales  # Solo rivales en selector
         stats_flota = obtener_estadisticas_flota_competencia()
 
-        # Selector de competidor
+        # Selector de competidor (excluye David)
         nombres_comp = ["-- Seleccionar competidor --"] + [c['nombre'] for c in competidores]
         comp_seleccionado = st.selectbox("🏢 Seleccionar competidor para ver detalles", nombres_comp, key="selector_comp")
 
@@ -2230,7 +2237,7 @@ elif pagina == "Analisis Mercado":
     with tab2:
         st.subheader("Inteligencia de Precios")
 
-        competidores = competidores_data
+        competidores = competidores_rivales  # Solo rivales para registrar cotizaciones
 
         if not competidores:
             st.warning("Primero debes registrar al menos un competidor")
@@ -2379,7 +2386,7 @@ elif pagina == "Analisis Mercado":
     with tab3:
         st.subheader("Gestión de Flotas de Competidores")
 
-        competidores = competidores_data
+        competidores = competidores_rivales  # Solo rivales para añadir vehículos
 
         if not competidores:
             st.warning("Primero debes añadir competidores en la pestaña 'Competidores'")
