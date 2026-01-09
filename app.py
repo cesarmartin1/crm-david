@@ -98,7 +98,7 @@ from database import (
     detectar_alertas_competencia, comparar_con_tarifa_david, FACTOR_VEHICULO_NORM,
     # Vehículos de competencia
     guardar_vehiculo_competencia, obtener_vehiculos_competencia, eliminar_vehiculo_competencia,
-    obtener_estadisticas_flota_competencia, obtener_comparativa_flotas, importar_vehiculos_masivo
+    actualizar_vehiculo_competencia, obtener_estadisticas_flota_competencia, obtener_comparativa_flotas, importar_vehiculos_masivo
 )
 
 # Configuración de la página
@@ -2067,23 +2067,82 @@ elif pagina == "Analisis Mercado":
                         st.write(f"- 🚐 Medianos (30-49): {flota_data['buses_medianos'] or 0}")
                         st.write(f"- 🚙 Micros (<30): {flota_data['microbuses'] or 0}")
 
-                        # Ver vehículos de este competidor
-                        if st.checkbox("Ver lista de vehículos", key="ver_veh_comp"):
+                        # Ver y editar vehículos de este competidor
+                        if st.checkbox("Ver/Editar vehículos", key="ver_veh_comp"):
                             vehiculos_comp = obtener_vehiculos_competencia(competidor_id=comp_data['id'])
                             if vehiculos_comp:
-                                df_v = pd.DataFrame(vehiculos_comp)
-                                st.dataframe(
-                                    df_v[['matricula', 'marca', 'modelo', 'plazas', 'edad', 'distintivo_ambiental']],
-                                    use_container_width=True, hide_index=True,
-                                    column_config={
-                                        'matricula': 'Matrícula',
-                                        'marca': 'Marca',
-                                        'modelo': 'Modelo',
-                                        'plazas': 'Plazas',
-                                        'edad': 'Edad',
-                                        'distintivo_ambiental': 'Distintivo'
-                                    }
-                                )
+                                # Selector de vehículo para editar
+                                opciones_veh = ["-- Ver todos --"] + [
+                                    f"{v['matricula'] or 'Sin mat.'} - {v['marca']} {v['modelo']} ({v['plazas']} plazas)"
+                                    for v in vehiculos_comp
+                                ]
+                                veh_seleccionado = st.selectbox("Seleccionar vehículo", opciones_veh, key="sel_veh_edit")
+
+                                if veh_seleccionado == "-- Ver todos --":
+                                    df_v = pd.DataFrame(vehiculos_comp)
+                                    st.dataframe(
+                                        df_v[['matricula', 'marca', 'modelo', 'plazas', 'edad', 'distintivo_ambiental']],
+                                        use_container_width=True, hide_index=True, height=200
+                                    )
+                                else:
+                                    # Encontrar vehículo seleccionado
+                                    idx = opciones_veh.index(veh_seleccionado) - 1
+                                    veh_edit = vehiculos_comp[idx]
+
+                                    st.markdown(f"**Editando:** {veh_edit['matricula'] or 'Sin matrícula'}")
+
+                                    with st.form(f"form_edit_veh_{veh_edit['id']}"):
+                                        col_e1, col_e2 = st.columns(2)
+                                        with col_e1:
+                                            edit_matricula = st.text_input("Matrícula", value=veh_edit['matricula'] or '')
+                                            edit_marca = st.text_input("Marca", value=veh_edit['marca'] or '')
+                                            edit_modelo = st.text_input("Modelo", value=veh_edit['modelo'] or '')
+                                            edit_plazas = st.number_input("Plazas", min_value=1, max_value=100, value=veh_edit['plazas'] or 55)
+                                        with col_e2:
+                                            edit_ano = st.number_input("Año matriculación", min_value=1990, max_value=2026, value=veh_edit['ano_matriculacion'] or 2020)
+                                            edit_distintivo = st.selectbox("Distintivo", ["", "0", "ECO", "C", "B", "Sin distintivo"],
+                                                                          index=["", "0", "ECO", "C", "B", "Sin distintivo"].index(veh_edit['distintivo_ambiental'] or ''))
+                                            edit_tipo = st.selectbox("Tipo", ["AUTOBUS", "MINIBUS", "MICROBUS", "TURISMO"],
+                                                                    index=["AUTOBUS", "MINIBUS", "MICROBUS", "TURISMO"].index(veh_edit['tipo_vehiculo'] or 'AUTOBUS'))
+
+                                        col_c1, col_c2 = st.columns(2)
+                                        with col_c1:
+                                            edit_pmr = st.checkbox("PMR", value=bool(veh_edit['pmr']))
+                                            edit_wc = st.checkbox("WC", value=bool(veh_edit['wc']))
+                                        with col_c2:
+                                            edit_wifi = st.checkbox("WiFi", value=bool(veh_edit['wifi']))
+                                            edit_escolar = st.checkbox("Escolar", value=bool(veh_edit['escolar']))
+
+                                        edit_obs = st.text_area("Observaciones", value=veh_edit['observaciones'] or '', height=60)
+
+                                        col_btn1, col_btn2 = st.columns(2)
+                                        with col_btn1:
+                                            if st.form_submit_button("💾 Guardar cambios", type="primary"):
+                                                # Calcular edad
+                                                edad_calc = datetime.now().year - edit_ano + (datetime.now().month / 12)
+                                                actualizar_vehiculo_competencia(
+                                                    veh_edit['id'],
+                                                    matricula=edit_matricula,
+                                                    marca=edit_marca,
+                                                    modelo=edit_modelo,
+                                                    plazas=edit_plazas,
+                                                    ano_matriculacion=edit_ano,
+                                                    edad=round(edad_calc, 1),
+                                                    distintivo_ambiental=edit_distintivo,
+                                                    tipo_vehiculo=edit_tipo,
+                                                    pmr=edit_pmr,
+                                                    wc=edit_wc,
+                                                    wifi=edit_wifi,
+                                                    escolar=edit_escolar,
+                                                    observaciones=edit_obs
+                                                )
+                                                st.success("Vehículo actualizado")
+                                                st.rerun()
+                                        with col_btn2:
+                                            if st.form_submit_button("🗑️ Eliminar", type="secondary"):
+                                                eliminar_vehiculo_competencia(veh_edit['id'])
+                                                st.success("Vehículo eliminado")
+                                                st.rerun()
                     else:
                         st.info("No hay vehículos registrados para este competidor")
 
