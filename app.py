@@ -2019,17 +2019,96 @@ elif pagina == "Analisis Mercado":
     with tab1:
         st.subheader("Gestión de Competidores")
 
-        col_form, col_list = st.columns([1, 2])
+        competidores = obtener_competidores()
+        stats_flota = obtener_estadisticas_flota_competencia()
 
-        with col_form:
-            st.markdown("**Añadir/Editar Competidor**")
+        # Selector de competidor
+        nombres_comp = ["-- Seleccionar competidor --"] + [c['nombre'] for c in competidores]
+        comp_seleccionado = st.selectbox("🏢 Seleccionar competidor para ver detalles", nombres_comp, key="selector_comp")
+
+        if comp_seleccionado != "-- Seleccionar competidor --":
+            # Obtener datos del competidor seleccionado
+            comp_data = next((c for c in competidores if c['nombre'] == comp_seleccionado), None)
+            flota_data = next((f for f in stats_flota if f['competidor'] == comp_seleccionado), None)
+
+            if comp_data:
+                st.divider()
+
+                col_info, col_flota = st.columns(2)
+
+                with col_info:
+                    st.markdown(f"### 🏢 {comp_seleccionado}")
+                    st.markdown(f"**Segmento:** {comp_data.get('segmento', '-')}")
+                    st.markdown(f"**Zona de operación:** {comp_data.get('zona_operacion', '-') or '-'}")
+
+                    if comp_data.get('fortalezas'):
+                        st.markdown(f"**💪 Fortalezas:**")
+                        st.info(comp_data['fortalezas'])
+                    if comp_data.get('debilidades'):
+                        st.markdown(f"**⚠️ Debilidades:**")
+                        st.warning(comp_data['debilidades'])
+                    if comp_data.get('notas'):
+                        st.markdown(f"**📝 Notas:**")
+                        st.caption(comp_data['notas'])
+
+                with col_flota:
+                    st.markdown("### 🚌 Flota")
+                    if flota_data and flota_data.get('total_vehiculos', 0) > 0:
+                        col_m1, col_m2 = st.columns(2)
+                        col_m1.metric("Total Vehículos", flota_data['total_vehiculos'])
+                        col_m2.metric("Capacidad Total", f"{flota_data['capacidad_total'] or 0:,} plazas")
+
+                        col_m3, col_m4 = st.columns(2)
+                        col_m3.metric("Edad Media", f"{flota_data['edad_media'] or 0:.1f} años")
+                        col_m4.metric("Con PMR", flota_data['con_pmr'] or 0)
+
+                        st.markdown("**Composición:**")
+                        st.write(f"- 🚌 Grandes (50+): {flota_data['buses_grandes'] or 0}")
+                        st.write(f"- 🚐 Medianos (30-49): {flota_data['buses_medianos'] or 0}")
+                        st.write(f"- 🚙 Micros (<30): {flota_data['microbuses'] or 0}")
+
+                        # Ver vehículos de este competidor
+                        if st.checkbox("Ver lista de vehículos", key="ver_veh_comp"):
+                            vehiculos_comp = obtener_vehiculos_competencia(competidor_id=comp_data['id'])
+                            if vehiculos_comp:
+                                df_v = pd.DataFrame(vehiculos_comp)
+                                st.dataframe(
+                                    df_v[['matricula', 'marca', 'modelo', 'plazas', 'edad', 'distintivo_ambiental']],
+                                    use_container_width=True, hide_index=True,
+                                    column_config={
+                                        'matricula': 'Matrícula',
+                                        'marca': 'Marca',
+                                        'modelo': 'Modelo',
+                                        'plazas': 'Plazas',
+                                        'edad': 'Edad',
+                                        'distintivo_ambiental': 'Distintivo'
+                                    }
+                                )
+                    else:
+                        st.info("No hay vehículos registrados para este competidor")
+
+                # Acciones
+                st.divider()
+                col_act1, col_act2 = st.columns(2)
+                with col_act1:
+                    if st.button("🗑️ Eliminar competidor", type="secondary"):
+                        eliminar_competidor(comp_data['id'])
+                        st.success(f"Competidor '{comp_seleccionado}' eliminado")
+                        st.rerun()
+
+        st.divider()
+
+        # Formulario para añadir nuevo competidor (colapsado)
+        with st.expander("➕ Añadir nuevo competidor"):
             with st.form("form_competidor"):
                 nombre_comp = st.text_input("Nombre de la empresa*")
-                segmento_comp = st.selectbox("Segmento", ["estandar", "premium", "low-cost", "especializado"])
-                zona_comp = st.text_input("Zona de operación", placeholder="Ej: País Vasco, Navarra")
-                flota_comp = st.number_input("Flota estimada", min_value=0, value=0)
-                fortalezas_comp = st.text_area("Fortalezas", height=80)
-                debilidades_comp = st.text_area("Debilidades", height=80)
+                col_f1, col_f2 = st.columns(2)
+                with col_f1:
+                    segmento_comp = st.selectbox("Segmento", ["estandar", "premium", "low-cost", "especializado"])
+                    zona_comp = st.text_input("Zona de operación", placeholder="Ej: País Vasco, Navarra")
+                with col_f2:
+                    fortalezas_comp = st.text_area("Fortalezas", height=80)
+                    debilidades_comp = st.text_area("Debilidades", height=80)
                 notas_comp = st.text_area("Notas adicionales", height=60)
 
                 if st.form_submit_button("Guardar Competidor", use_container_width=True):
@@ -2038,7 +2117,6 @@ elif pagina == "Analisis Mercado":
                             nombre=nombre_comp,
                             segmento=segmento_comp,
                             zona_operacion=zona_comp,
-                            flota_estimada=flota_comp if flota_comp > 0 else None,
                             fortalezas=fortalezas_comp,
                             debilidades=debilidades_comp,
                             notas=notas_comp
@@ -2048,27 +2126,29 @@ elif pagina == "Analisis Mercado":
                     else:
                         st.error("El nombre es obligatorio")
 
-        with col_list:
-            st.markdown("**Competidores Registrados**")
-            competidores = obtener_competidores()
+        # Tabla resumen de todos los competidores
+        st.markdown("### 📋 Todos los Competidores")
+        if competidores:
+            # Combinar datos de competidores con flotas
+            df_all = pd.DataFrame(competidores)
+            df_flotas = pd.DataFrame(stats_flota) if stats_flota else pd.DataFrame()
 
-            if competidores:
-                df_comp = pd.DataFrame(competidores)
-                df_comp_show = df_comp[['nombre', 'segmento', 'zona_operacion', 'flota_estimada']].copy()
-                df_comp_show.columns = ['Nombre', 'Segmento', 'Zona', 'Flota']
-
-                st.dataframe(df_comp_show, use_container_width=True, hide_index=True)
-
-                # Eliminar competidor
-                comp_eliminar = st.selectbox("Seleccionar para eliminar", [""] + [c['nombre'] for c in competidores])
-                if comp_eliminar and st.button("🗑️ Eliminar competidor", type="secondary"):
-                    comp_id = next((c['id'] for c in competidores if c['nombre'] == comp_eliminar), None)
-                    if comp_id:
-                        eliminar_competidor(comp_id)
-                        st.success(f"Competidor '{comp_eliminar}' eliminado")
-                        st.rerun()
+            if not df_flotas.empty:
+                df_all = df_all.merge(
+                    df_flotas[['competidor', 'total_vehiculos', 'capacidad_total', 'edad_media']],
+                    left_on='nombre', right_on='competidor', how='left'
+                )
+                df_show = df_all[['nombre', 'segmento', 'zona_operacion', 'total_vehiculos', 'capacidad_total', 'edad_media']].copy()
+                df_show.columns = ['Nombre', 'Segmento', 'Zona', 'Vehículos', 'Capacidad', 'Edad Media']
+                df_show = df_show.fillna(0)
+                df_show = df_show.sort_values('Vehículos', ascending=False)
             else:
-                st.info("No hay competidores registrados. Añade el primero.")
+                df_show = df_all[['nombre', 'segmento', 'zona_operacion']].copy()
+                df_show.columns = ['Nombre', 'Segmento', 'Zona']
+
+            st.dataframe(df_show, use_container_width=True, hide_index=True)
+        else:
+            st.info("No hay competidores registrados.")
 
     # TAB 2: COTIZACIONES DE COMPETENCIA
     with tab2:
