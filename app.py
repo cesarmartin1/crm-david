@@ -2880,7 +2880,6 @@ elif pagina == "Analisis Mercado":
                 st.info("Los servicios donde estamos más baratos representan una ventaja competitiva. Considerar si hay margen para subir precios sin perder competitividad.")
         else:
             st.success("✅ **Situación óptima:** No hay alertas de precios. Los precios de David están dentro del rango del mercado.")
-            st.balloons()
 
 
 # ============================================
