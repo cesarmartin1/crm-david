@@ -1820,6 +1820,31 @@ def init_competencia_db():
         )
     ''')
 
+    # Tabla de vehículos de la competencia
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS vehiculos_competencia (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            competidor_id INTEGER NOT NULL,
+            matricula TEXT,
+            tipo_vehiculo TEXT DEFAULT 'AUTOBUS',
+            marca TEXT,
+            modelo TEXT,
+            plazas INTEGER,
+            ano_matriculacion INTEGER,
+            edad REAL,
+            distintivo_ambiental TEXT,
+            pmr INTEGER DEFAULT 0,
+            wc INTEGER DEFAULT 0,
+            wifi INTEGER DEFAULT 0,
+            escolar INTEGER DEFAULT 0,
+            activo INTEGER DEFAULT 1,
+            observaciones TEXT,
+            fecha_registro TEXT DEFAULT CURRENT_TIMESTAMP,
+            fecha_actualizacion TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (competidor_id) REFERENCES competidores(id)
+        )
+    ''')
+
     conn.commit()
     conn.close()
 
@@ -2148,6 +2173,188 @@ def comparar_con_tarifa_david(tipo_servicio: str, tipo_vehiculo: str = 'STD',
             'posicion_david': 'COMPETITIVO' if tarifa_david <= sum(precios_comp) / len(precios_comp) else 'POR ENCIMA'
         }
     }
+
+# ============================================
+# FUNCIONES PARA VEHÍCULOS DE COMPETENCIA
+# ============================================
+
+def guardar_vehiculo_competencia(competidor_id: int, matricula: str = None, tipo_vehiculo: str = 'AUTOBUS',
+                                  marca: str = '', modelo: str = '', plazas: int = None,
+                                  ano_matriculacion: int = None, distintivo_ambiental: str = '',
+                                  pmr: bool = False, wc: bool = False, wifi: bool = False,
+                                  escolar: bool = False, observaciones: str = '') -> int:
+    """Guarda un vehículo de la competencia."""
+    conn = get_connection()
+    c = conn.cursor()
+
+    # Calcular edad si hay año de matriculación
+    edad = None
+    if ano_matriculacion:
+        from datetime import datetime
+        edad = datetime.now().year - ano_matriculacion
+
+    c.execute('''
+        INSERT INTO vehiculos_competencia
+        (competidor_id, matricula, tipo_vehiculo, marca, modelo, plazas, ano_matriculacion,
+         edad, distintivo_ambiental, pmr, wc, wifi, escolar, observaciones)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (competidor_id, matricula, tipo_vehiculo, marca, modelo, plazas, ano_matriculacion,
+          edad, distintivo_ambiental, 1 if pmr else 0, 1 if wc else 0, 1 if wifi else 0,
+          1 if escolar else 0, observaciones))
+    conn.commit()
+    result = c.lastrowid
+    conn.close()
+    return result
+
+def actualizar_vehiculo_competencia(vehiculo_id: int, **kwargs) -> bool:
+    """Actualiza un vehículo de la competencia."""
+    conn = get_connection()
+    c = conn.cursor()
+
+    campos = []
+    valores = []
+    for key, value in kwargs.items():
+        if value is not None:
+            if key in ['pmr', 'wc', 'wifi', 'escolar', 'activo']:
+                campos.append(f'{key} = ?')
+                valores.append(1 if value else 0)
+            else:
+                campos.append(f'{key} = ?')
+                valores.append(value)
+
+    if not campos:
+        conn.close()
+        return False
+
+    campos.append('fecha_actualizacion = CURRENT_TIMESTAMP')
+    valores.append(vehiculo_id)
+
+    c.execute(f'UPDATE vehiculos_competencia SET {", ".join(campos)} WHERE id = ?', valores)
+    conn.commit()
+    result = c.rowcount > 0
+    conn.close()
+    return result
+
+def obtener_vehiculos_competencia(competidor_id: int = None, solo_activos: bool = True) -> list:
+    """Obtiene vehículos de la competencia, opcionalmente filtrado por competidor."""
+    conn = get_connection()
+    c = conn.cursor()
+
+    query = '''
+        SELECT v.*, comp.nombre as competidor_nombre
+        FROM vehiculos_competencia v
+        JOIN competidores comp ON v.competidor_id = comp.id
+        WHERE 1=1
+    '''
+    params = []
+
+    if competidor_id:
+        query += ' AND v.competidor_id = ?'
+        params.append(competidor_id)
+    if solo_activos:
+        query += ' AND v.activo = 1'
+
+    query += ' ORDER BY comp.nombre, v.plazas DESC'
+
+    c.execute(query, params)
+    cols = [d[0] for d in c.description]
+    result = [dict(zip(cols, row)) for row in c.fetchall()]
+    conn.close()
+    return result
+
+def eliminar_vehiculo_competencia(vehiculo_id: int) -> bool:
+    """Elimina un vehículo (soft delete)."""
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute('UPDATE vehiculos_competencia SET activo = 0, fecha_actualizacion = CURRENT_TIMESTAMP WHERE id = ?',
+              (vehiculo_id,))
+    conn.commit()
+    result = c.rowcount > 0
+    conn.close()
+    return result
+
+def obtener_estadisticas_flota_competencia(competidor_id: int = None) -> dict:
+    """Obtiene estadísticas de la flota de competidores."""
+    conn = get_connection()
+    c = conn.cursor()
+
+    base_query = '''
+        SELECT
+            comp.id as competidor_id,
+            comp.nombre as competidor,
+            COUNT(v.id) as total_vehiculos,
+            SUM(CASE WHEN v.plazas >= 50 THEN 1 ELSE 0 END) as buses_grandes,
+            SUM(CASE WHEN v.plazas >= 30 AND v.plazas < 50 THEN 1 ELSE 0 END) as buses_medianos,
+            SUM(CASE WHEN v.plazas < 30 THEN 1 ELSE 0 END) as microbuses,
+            ROUND(AVG(v.edad), 1) as edad_media,
+            SUM(v.plazas) as capacidad_total,
+            SUM(CASE WHEN v.pmr = 1 THEN 1 ELSE 0 END) as con_pmr,
+            SUM(CASE WHEN v.wc = 1 THEN 1 ELSE 0 END) as con_wc,
+            SUM(CASE WHEN v.wifi = 1 THEN 1 ELSE 0 END) as con_wifi,
+            SUM(CASE WHEN v.escolar = 1 THEN 1 ELSE 0 END) as escolares
+        FROM competidores comp
+        LEFT JOIN vehiculos_competencia v ON comp.id = v.competidor_id AND v.activo = 1
+        WHERE comp.activo = 1
+    '''
+    params = []
+
+    if competidor_id:
+        base_query += ' AND comp.id = ?'
+        params.append(competidor_id)
+
+    base_query += ' GROUP BY comp.id, comp.nombre ORDER BY total_vehiculos DESC'
+
+    c.execute(base_query, params)
+    cols = [d[0] for d in c.description]
+    result = [dict(zip(cols, row)) for row in c.fetchall()]
+    conn.close()
+    return result
+
+def obtener_comparativa_flotas() -> dict:
+    """Obtiene una comparativa de flotas entre competidores."""
+    stats = obtener_estadisticas_flota_competencia()
+
+    if not stats:
+        return {'competidores': [], 'resumen': None}
+
+    total_vehiculos = sum(s['total_vehiculos'] or 0 for s in stats)
+    total_capacidad = sum(s['capacidad_total'] or 0 for s in stats)
+
+    return {
+        'competidores': stats,
+        'resumen': {
+            'total_competidores': len(stats),
+            'total_vehiculos_mercado': total_vehiculos,
+            'capacidad_total_mercado': total_capacidad,
+            'edad_media_mercado': round(sum((s['edad_media'] or 0) * (s['total_vehiculos'] or 0) for s in stats) / total_vehiculos, 1) if total_vehiculos else 0,
+            'lider_flota': max(stats, key=lambda x: x['total_vehiculos'] or 0)['competidor'] if stats else None
+        }
+    }
+
+def importar_vehiculos_masivo(competidor_id: int, vehiculos: list) -> int:
+    """Importa múltiples vehículos para un competidor."""
+    count = 0
+    for v in vehiculos:
+        try:
+            guardar_vehiculo_competencia(
+                competidor_id=competidor_id,
+                matricula=v.get('matricula'),
+                tipo_vehiculo=v.get('tipo_vehiculo', 'AUTOBUS'),
+                marca=v.get('marca', ''),
+                modelo=v.get('modelo', ''),
+                plazas=v.get('plazas'),
+                ano_matriculacion=v.get('ano_matriculacion'),
+                distintivo_ambiental=v.get('distintivo_ambiental', ''),
+                pmr=v.get('pmr', False),
+                wc=v.get('wc', False),
+                wifi=v.get('wifi', False),
+                escolar=v.get('escolar', False),
+                observaciones=v.get('observaciones', '')
+            )
+            count += 1
+        except Exception as e:
+            print(f"Error importando vehículo: {e}")
+    return count
 
 # Inicializar tabla de competencia
 init_competencia_db()

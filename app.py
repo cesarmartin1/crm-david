@@ -95,7 +95,10 @@ from database import (
     guardar_competidor, obtener_competidores, obtener_competidor_por_id, eliminar_competidor,
     guardar_cotizacion_competencia, obtener_cotizaciones_competencia, eliminar_cotizacion_competencia,
     obtener_estadisticas_mercado, obtener_posicion_por_servicio, obtener_ranking_competidores,
-    detectar_alertas_competencia, comparar_con_tarifa_david, FACTOR_VEHICULO_NORM
+    detectar_alertas_competencia, comparar_con_tarifa_david, FACTOR_VEHICULO_NORM,
+    # Vehículos de competencia
+    guardar_vehiculo_competencia, obtener_vehiculos_competencia, eliminar_vehiculo_competencia,
+    obtener_estadisticas_flota_competencia, obtener_comparativa_flotas, importar_vehiculos_masivo
 )
 
 # Configuración de la página
@@ -1900,7 +1903,7 @@ elif pagina == "Analisis Mercado":
     st.title("📊 Análisis de Mercado")
     st.caption("Seguimiento de competencia y posicionamiento de precios")
 
-    tab1, tab2, tab3, tab4 = st.tabs(["🏢 Competidores", "💰 Cotizaciones", "📈 Análisis", "⚠️ Alertas"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏢 Competidores", "💰 Cotizaciones", "🚌 Flotas", "📈 Análisis", "⚠️ Alertas"])
 
     # TAB 1: GESTIÓN DE COMPETIDORES
     with tab1:
@@ -2038,8 +2041,136 @@ elif pagina == "Analisis Mercado":
                 else:
                     st.info("No hay cotizaciones registradas")
 
-    # TAB 3: ANÁLISIS COMPARATIVO
+    # TAB 3: FLOTAS DE COMPETIDORES
     with tab3:
+        st.subheader("Gestión de Flotas de Competidores")
+
+        competidores = obtener_competidores()
+
+        if not competidores:
+            st.warning("Primero debes añadir competidores en la pestaña 'Competidores'")
+        else:
+            col_add, col_stats = st.columns([1, 2])
+
+            with col_add:
+                st.markdown("**Añadir Vehículo**")
+                with st.form("form_vehiculo_comp"):
+                    comp_veh = st.selectbox("Competidor*", [c['nombre'] for c in competidores], key="comp_veh_select")
+                    matricula_veh = st.text_input("Matrícula", placeholder="Ej: 1234-ABC")
+
+                    col_v1, col_v2 = st.columns(2)
+                    with col_v1:
+                        marca_veh = st.text_input("Marca", placeholder="Ej: Irizar, Scania")
+                        plazas_veh = st.number_input("Plazas", min_value=1, max_value=100, value=55)
+                        ano_veh = st.number_input("Año matriculación", min_value=1990, max_value=2026, value=2020)
+                    with col_v2:
+                        modelo_veh = st.text_input("Modelo", placeholder="Ej: i6S, Century")
+                        distintivo_veh = st.selectbox("Distintivo ambiental", ["", "0", "ECO", "C", "B", "Sin distintivo"])
+                        tipo_veh_flota = st.selectbox("Tipo", ["AUTOBUS", "MINIBUS", "MICROBUS", "TURISMO"])
+
+                    col_check1, col_check2 = st.columns(2)
+                    with col_check1:
+                        pmr_veh = st.checkbox("PMR (accesible)")
+                        wc_veh = st.checkbox("WC")
+                    with col_check2:
+                        wifi_veh = st.checkbox("WiFi")
+                        escolar_veh = st.checkbox("Escolar")
+
+                    obs_veh = st.text_area("Observaciones", height=60)
+
+                    if st.form_submit_button("Añadir Vehículo", type="primary"):
+                        if comp_veh:
+                            comp_id_veh = next((c['id'] for c in competidores if c['nombre'] == comp_veh), None)
+                            if comp_id_veh:
+                                guardar_vehiculo_competencia(
+                                    competidor_id=comp_id_veh,
+                                    matricula=matricula_veh if matricula_veh else None,
+                                    tipo_vehiculo=tipo_veh_flota,
+                                    marca=marca_veh,
+                                    modelo=modelo_veh,
+                                    plazas=plazas_veh,
+                                    ano_matriculacion=ano_veh,
+                                    distintivo_ambiental=distintivo_veh,
+                                    pmr=pmr_veh,
+                                    wc=wc_veh,
+                                    wifi=wifi_veh,
+                                    escolar=escolar_veh,
+                                    observaciones=obs_veh
+                                )
+                                st.success(f"Vehículo añadido a {comp_veh}")
+                                st.rerun()
+                        else:
+                            st.error("Selecciona un competidor")
+
+            with col_stats:
+                st.markdown("**Comparativa de Flotas**")
+
+                comparativa = obtener_comparativa_flotas()
+
+                if comparativa['resumen']:
+                    res = comparativa['resumen']
+                    col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+                    col_m1.metric("Total Competidores", res['total_competidores'])
+                    col_m2.metric("Vehículos Mercado", res['total_vehiculos_mercado'])
+                    col_m3.metric("Capacidad Total", f"{res['capacidad_total_mercado']:,} plazas")
+                    col_m4.metric("Líder Flota", res['lider_flota'] or "-")
+
+                if comparativa['competidores']:
+                    df_flotas = pd.DataFrame(comparativa['competidores'])
+                    df_flotas_show = df_flotas[['competidor', 'total_vehiculos', 'buses_grandes', 'buses_medianos',
+                                                 'microbuses', 'edad_media', 'capacidad_total', 'con_pmr']].copy()
+                    df_flotas_show.columns = ['Competidor', 'Total', 'Grandes (50+)', 'Medianos', 'Micro',
+                                              'Edad Media', 'Capacidad', 'PMR']
+                    st.dataframe(df_flotas_show, use_container_width=True, hide_index=True)
+
+                    # Gráfico de barras
+                    if len(df_flotas) > 0:
+                        fig_flotas = px.bar(
+                            df_flotas,
+                            x='competidor',
+                            y='total_vehiculos',
+                            color='edad_media',
+                            title='Tamaño de Flota por Competidor',
+                            labels={'total_vehiculos': 'Vehículos', 'competidor': 'Competidor', 'edad_media': 'Edad Media'},
+                            color_continuous_scale='RdYlGn_r'
+                        )
+                        st.plotly_chart(fig_flotas, use_container_width=True)
+
+            st.divider()
+
+            # Lista de vehículos
+            st.markdown("**Vehículos Registrados**")
+            filtro_comp_veh = st.selectbox("Filtrar por competidor", ["Todos"] + [c['nombre'] for c in competidores], key="filtro_veh")
+
+            comp_id_filtro_veh = None
+            if filtro_comp_veh != "Todos":
+                comp_id_filtro_veh = next((c['id'] for c in competidores if c['nombre'] == filtro_comp_veh), None)
+
+            vehiculos = obtener_vehiculos_competencia(competidor_id=comp_id_filtro_veh)
+
+            if vehiculos:
+                df_veh = pd.DataFrame(vehiculos)
+                df_veh_show = df_veh[['competidor_nombre', 'matricula', 'marca', 'modelo', 'plazas',
+                                      'ano_matriculacion', 'edad', 'distintivo_ambiental']].copy()
+                df_veh_show.columns = ['Competidor', 'Matrícula', 'Marca', 'Modelo', 'Plazas', 'Año', 'Edad', 'Distintivo']
+                df_veh_show['Matrícula'] = df_veh_show['Matrícula'].fillna('-')
+                st.dataframe(df_veh_show, use_container_width=True, hide_index=True)
+
+                # Botón para eliminar
+                if st.checkbox("Mostrar opciones de eliminación", key="show_del_veh"):
+                    veh_eliminar = st.selectbox("Seleccionar vehículo a eliminar",
+                                                 [f"{v['competidor_nombre']} - {v['matricula'] or 'Sin matrícula'} ({v['marca']} {v['modelo']})" for v in vehiculos],
+                                                 key="veh_del_select")
+                    if st.button("Eliminar vehículo", type="secondary"):
+                        idx = [f"{v['competidor_nombre']} - {v['matricula'] or 'Sin matrícula'} ({v['marca']} {v['modelo']})" for v in vehiculos].index(veh_eliminar)
+                        eliminar_vehiculo_competencia(vehiculos[idx]['id'])
+                        st.success("Vehículo eliminado")
+                        st.rerun()
+            else:
+                st.info("No hay vehículos registrados")
+
+    # TAB 4: ANÁLISIS COMPARATIVO
+    with tab4:
         st.subheader("Análisis Comparativo de Precios")
 
         estadisticas = obtener_estadisticas_mercado()
@@ -2142,8 +2273,8 @@ elif pagina == "Analisis Mercado":
         else:
             st.info("No hay datos de mercado. Registra cotizaciones de la competencia para ver el análisis.")
 
-    # TAB 4: ALERTAS
-    with tab4:
+    # TAB 5: ALERTAS
+    with tab5:
         st.subheader("Alertas de Competencia")
 
         umbral = st.slider("Umbral de diferencia (%)", min_value=5, max_value=50, value=15)
