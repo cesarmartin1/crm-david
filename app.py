@@ -90,7 +90,12 @@ from database import (
     guardar_tipo_cliente, obtener_tipos_cliente, eliminar_tipo_cliente,
     guardar_tarifa_servicio, obtener_tarifas_servicio, obtener_tarifa_servicio, eliminar_tarifa_servicio,
     guardar_tarifa_cliente, obtener_tarifas_cliente, obtener_tarifa_cliente_especifica, eliminar_tarifa_cliente,
-    calcular_tarifa
+    calcular_tarifa,
+    # Competencia y Análisis de Mercado
+    guardar_competidor, obtener_competidores, obtener_competidor_por_id, eliminar_competidor,
+    guardar_cotizacion_competencia, obtener_cotizaciones_competencia, eliminar_cotizacion_competencia,
+    obtener_estadisticas_mercado, obtener_posicion_por_servicio, obtener_ranking_competidores,
+    detectar_alertas_competencia, comparar_con_tarifa_david, FACTOR_VEHICULO_NORM
 )
 
 # Configuración de la página
@@ -963,7 +968,7 @@ TODAS_LAS_PAGINAS = [
     # Comercial
     "Clientes", "Campanas Segmentadas", "Incentivos",
     # Análisis
-    "Dashboard", "Analisis Conversion", "Tiempo Anticipacion",
+    "Dashboard", "Analisis Conversion", "Tiempo Anticipacion", "Analisis Mercado",
     # Configuración
     "Tarifas", "Configuracion"
 ]
@@ -1886,6 +1891,281 @@ elif pagina == "Tiempo Anticipacion":
             "anticipacion_por_tipo.csv",
             "text/csv"
         )
+
+
+# ============================================
+# PÁGINA: ANÁLISIS DE MERCADO Y COMPETENCIA
+# ============================================
+elif pagina == "Analisis Mercado":
+    st.title("📊 Análisis de Mercado")
+    st.caption("Seguimiento de competencia y posicionamiento de precios")
+
+    tab1, tab2, tab3, tab4 = st.tabs(["🏢 Competidores", "💰 Cotizaciones", "📈 Análisis", "⚠️ Alertas"])
+
+    # TAB 1: GESTIÓN DE COMPETIDORES
+    with tab1:
+        st.subheader("Gestión de Competidores")
+
+        col_form, col_list = st.columns([1, 2])
+
+        with col_form:
+            st.markdown("**Añadir/Editar Competidor**")
+            with st.form("form_competidor"):
+                nombre_comp = st.text_input("Nombre de la empresa*")
+                segmento_comp = st.selectbox("Segmento", ["estandar", "premium", "low-cost", "especializado"])
+                zona_comp = st.text_input("Zona de operación", placeholder="Ej: País Vasco, Navarra")
+                flota_comp = st.number_input("Flota estimada", min_value=0, value=0)
+                fortalezas_comp = st.text_area("Fortalezas", height=80)
+                debilidades_comp = st.text_area("Debilidades", height=80)
+                notas_comp = st.text_area("Notas adicionales", height=60)
+
+                if st.form_submit_button("Guardar Competidor", use_container_width=True):
+                    if nombre_comp:
+                        guardar_competidor(
+                            nombre=nombre_comp,
+                            segmento=segmento_comp,
+                            zona_operacion=zona_comp,
+                            flota_estimada=flota_comp if flota_comp > 0 else None,
+                            fortalezas=fortalezas_comp,
+                            debilidades=debilidades_comp,
+                            notas=notas_comp
+                        )
+                        st.success(f"Competidor '{nombre_comp}' guardado")
+                        st.rerun()
+                    else:
+                        st.error("El nombre es obligatorio")
+
+        with col_list:
+            st.markdown("**Competidores Registrados**")
+            competidores = obtener_competidores()
+
+            if competidores:
+                df_comp = pd.DataFrame(competidores)
+                df_comp_show = df_comp[['nombre', 'segmento', 'zona_operacion', 'flota_estimada']].copy()
+                df_comp_show.columns = ['Nombre', 'Segmento', 'Zona', 'Flota']
+
+                st.dataframe(df_comp_show, use_container_width=True, hide_index=True)
+
+                # Eliminar competidor
+                comp_eliminar = st.selectbox("Seleccionar para eliminar", [""] + [c['nombre'] for c in competidores])
+                if comp_eliminar and st.button("🗑️ Eliminar competidor", type="secondary"):
+                    comp_id = next((c['id'] for c in competidores if c['nombre'] == comp_eliminar), None)
+                    if comp_id:
+                        eliminar_competidor(comp_id)
+                        st.success(f"Competidor '{comp_eliminar}' eliminado")
+                        st.rerun()
+            else:
+                st.info("No hay competidores registrados. Añade el primero.")
+
+    # TAB 2: COTIZACIONES DE COMPETENCIA
+    with tab2:
+        st.subheader("Registro de Cotizaciones")
+
+        competidores = obtener_competidores()
+
+        if not competidores:
+            st.warning("Primero debes registrar al menos un competidor")
+        else:
+            col_cot_form, col_cot_list = st.columns([1, 2])
+
+            with col_cot_form:
+                st.markdown("**Nueva Cotización**")
+                with st.form("form_cotizacion"):
+                    comp_sel = st.selectbox("Competidor*", [c['nombre'] for c in competidores])
+                    tipo_serv = st.selectbox("Tipo de Servicio*", [
+                        "TRANSFER", "EXCURSION", "ESCOLAR", "DEPORTIVO",
+                        "CONGRESO", "CIRCUITO", "DISCRECIONAL", "OTRO"
+                    ])
+                    tipo_veh = st.selectbox("Tipo de Vehículo", list(FACTOR_VEHICULO_NORM.keys()))
+                    precio_cot = st.number_input("Precio (€)*", min_value=0.0, step=10.0)
+                    km_cot = st.number_input("Kilómetros", min_value=0, step=10)
+                    horas_cot = st.number_input("Horas", min_value=0.0, step=0.5)
+                    origen_cot = st.text_input("Origen")
+                    destino_cot = st.text_input("Destino")
+                    fecha_cot = st.date_input("Fecha de la cotización", value=datetime.now())
+                    fuente_cot = st.text_input("Fuente", placeholder="Ej: Cliente, Web, Llamada")
+                    notas_cot = st.text_area("Notas", height=60)
+
+                    if st.form_submit_button("Registrar Cotización", use_container_width=True):
+                        if comp_sel and precio_cot > 0:
+                            comp_id = next((c['id'] for c in competidores if c['nombre'] == comp_sel), None)
+                            if comp_id:
+                                guardar_cotizacion_competencia(
+                                    competidor_id=comp_id,
+                                    tipo_servicio=tipo_serv,
+                                    precio=precio_cot,
+                                    tipo_vehiculo=tipo_veh,
+                                    kilometros=km_cot if km_cot > 0 else None,
+                                    horas=horas_cot if horas_cot > 0 else None,
+                                    origen=origen_cot,
+                                    destino=destino_cot,
+                                    fecha_cotizacion=fecha_cot.strftime('%Y-%m-%d'),
+                                    fuente=fuente_cot,
+                                    notas=notas_cot
+                                )
+                                st.success("Cotización registrada")
+                                st.rerun()
+                        else:
+                            st.error("Competidor y precio son obligatorios")
+
+            with col_cot_list:
+                st.markdown("**Cotizaciones Registradas**")
+
+                # Filtros
+                col_f1, col_f2 = st.columns(2)
+                with col_f1:
+                    filtro_comp = st.selectbox("Filtrar por competidor", ["Todos"] + [c['nombre'] for c in competidores], key="filtro_comp_cot")
+                with col_f2:
+                    filtro_tipo = st.selectbox("Filtrar por tipo", ["Todos", "TRANSFER", "EXCURSION", "ESCOLAR", "DEPORTIVO", "CONGRESO", "CIRCUITO", "DISCRECIONAL"], key="filtro_tipo_cot")
+
+                # Obtener cotizaciones
+                comp_id_filtro = None
+                if filtro_comp != "Todos":
+                    comp_id_filtro = next((c['id'] for c in competidores if c['nombre'] == filtro_comp), None)
+
+                cotizaciones = obtener_cotizaciones_competencia(
+                    competidor_id=comp_id_filtro,
+                    tipo_servicio=filtro_tipo if filtro_tipo != "Todos" else None
+                )
+
+                if cotizaciones:
+                    df_cot = pd.DataFrame(cotizaciones)
+                    df_cot_show = df_cot[['competidor_nombre', 'tipo_servicio', 'tipo_vehiculo', 'precio', 'fecha_cotizacion']].copy()
+                    df_cot_show.columns = ['Competidor', 'Servicio', 'Vehículo', 'Precio', 'Fecha']
+                    df_cot_show['Precio'] = df_cot_show['Precio'].apply(lambda x: f"{x:,.0f}€")
+
+                    st.dataframe(df_cot_show, use_container_width=True, hide_index=True)
+                else:
+                    st.info("No hay cotizaciones registradas")
+
+    # TAB 3: ANÁLISIS COMPARATIVO
+    with tab3:
+        st.subheader("Análisis Comparativo de Precios")
+
+        estadisticas = obtener_estadisticas_mercado()
+
+        if estadisticas:
+            # Resumen por tipo de servicio
+            df_stats = pd.DataFrame(estadisticas)
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.markdown("**Precios medios por tipo de servicio**")
+                fig = px.bar(
+                    df_stats,
+                    x='tipo_servicio',
+                    y='precio_medio',
+                    color='tipo_vehiculo',
+                    barmode='group',
+                    labels={'tipo_servicio': 'Servicio', 'precio_medio': 'Precio Medio (€)', 'tipo_vehiculo': 'Vehículo'}
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+            with col2:
+                st.markdown("**Rango de precios del mercado**")
+                fig2 = go.Figure()
+                for _, row in df_stats.iterrows():
+                    fig2.add_trace(go.Bar(
+                        name=f"{row['tipo_servicio']} ({row['tipo_vehiculo']})",
+                        x=[f"{row['tipo_servicio']}\n{row['tipo_vehiculo']}"],
+                        y=[row['precio_medio']],
+                        error_y=dict(
+                            type='data',
+                            symmetric=False,
+                            array=[row['precio_max'] - row['precio_medio']],
+                            arrayminus=[row['precio_medio'] - row['precio_min']]
+                        )
+                    ))
+                fig2.update_layout(showlegend=False, yaxis_title="Precio (€)")
+                st.plotly_chart(fig2, use_container_width=True)
+
+            # Ranking de competidores
+            st.markdown("---")
+            st.markdown("**Ranking de Competidores por Precio Medio**")
+
+            ranking = obtener_ranking_competidores()
+            if ranking:
+                df_rank = pd.DataFrame(ranking)
+                df_rank['precio_medio'] = df_rank['precio_medio'].round(0)
+
+                fig3 = px.bar(
+                    df_rank,
+                    y='nombre',
+                    x='precio_medio',
+                    orientation='h',
+                    color='segmento',
+                    labels={'nombre': 'Competidor', 'precio_medio': 'Precio Medio (€)', 'segmento': 'Segmento'}
+                )
+                fig3.update_layout(yaxis={'categoryorder': 'total ascending'})
+                st.plotly_chart(fig3, use_container_width=True)
+
+            # Comparador con tarifa David
+            st.markdown("---")
+            st.subheader("🔍 Comparador con Tarifas David")
+
+            col_c1, col_c2, col_c3, col_c4 = st.columns(4)
+            with col_c1:
+                tipo_comp = st.selectbox("Tipo de servicio", ["TRANSFER", "EXCURSION", "ESCOLAR", "DEPORTIVO", "CONGRESO", "CIRCUITO", "DISCRECIONAL"])
+            with col_c2:
+                veh_comp = st.selectbox("Tipo de vehículo", list(FACTOR_VEHICULO_NORM.keys()), key="veh_comparador")
+            with col_c3:
+                km_comp = st.number_input("Kilómetros", min_value=0, value=100, step=10)
+            with col_c4:
+                horas_comp = st.number_input("Horas", min_value=0.0, value=8.0, step=0.5)
+
+            if st.button("Comparar", type="primary"):
+                resultado = comparar_con_tarifa_david(tipo_comp, veh_comp, km_comp, horas_comp)
+
+                col_r1, col_r2, col_r3 = st.columns(3)
+                with col_r1:
+                    st.metric("Precio David", f"{resultado['precio_david']:,.0f}€" if resultado['precio_david'] else "N/A")
+                with col_r2:
+                    if resultado['resumen']:
+                        st.metric("Media Competencia", f"{resultado['resumen']['precio_medio_competencia']:,.0f}€")
+                    else:
+                        st.metric("Media Competencia", "Sin datos")
+                with col_r3:
+                    if resultado['resumen']:
+                        posicion = resultado['resumen']['posicion_david']
+                        color = "normal" if posicion == "COMPETITIVO" else "inverse"
+                        st.metric("Posición", posicion)
+                    else:
+                        st.metric("Posición", "Sin datos")
+
+                if resultado['comparacion']:
+                    st.markdown("**Detalle por competidor:**")
+                    df_detalle = pd.DataFrame(resultado['comparacion'])
+                    df_detalle['diferencia_pct'] = df_detalle['diferencia_pct'].apply(lambda x: f"{x:+.1f}%")
+                    df_detalle['precio'] = df_detalle['precio'].apply(lambda x: f"{x:,.0f}€")
+                    st.dataframe(df_detalle, use_container_width=True, hide_index=True)
+        else:
+            st.info("No hay datos de mercado. Registra cotizaciones de la competencia para ver el análisis.")
+
+    # TAB 4: ALERTAS
+    with tab4:
+        st.subheader("Alertas de Competencia")
+
+        umbral = st.slider("Umbral de diferencia (%)", min_value=5, max_value=50, value=15)
+
+        alertas = detectar_alertas_competencia(umbral_diferencia=umbral)
+
+        if alertas:
+            for alerta in alertas:
+                if alerta['alerta'] == 'MÁS CARO':
+                    st.error(f"⚠️ **{alerta['tipo_servicio']}** ({alerta['tipo_vehiculo']}): David está **{abs(alerta['diferencia_pct'])}% más caro** que el mercado")
+                else:
+                    st.success(f"✅ **{alerta['tipo_servicio']}** ({alerta['tipo_vehiculo']}): David está **{abs(alerta['diferencia_pct'])}% más barato** que el mercado")
+
+            st.markdown("---")
+            st.markdown("**Resumen de alertas:**")
+            df_alertas = pd.DataFrame(alertas)
+            df_alertas['precio_david'] = df_alertas['precio_david'].apply(lambda x: f"{x:,.0f}€")
+            df_alertas['precio_mercado'] = df_alertas['precio_mercado'].apply(lambda x: f"{x:,.0f}€")
+            df_alertas['diferencia_pct'] = df_alertas['diferencia_pct'].apply(lambda x: f"{x:+.1f}%")
+            st.dataframe(df_alertas, use_container_width=True, hide_index=True)
+        else:
+            st.success("✅ No hay alertas de precios. Los precios de David están dentro del rango del mercado.")
 
 
 # ============================================

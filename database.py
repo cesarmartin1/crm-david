@@ -1763,3 +1763,391 @@ if not obtener_temporadas():
 
 if not obtener_tarifas_servicio():
     cargar_tarifas_servicio_iniciales()
+
+
+# =============================================================================
+# ANÁLISIS DE MERCADO Y COMPETENCIA
+# =============================================================================
+
+# Factor para normalizar precios según capacidad del vehículo
+FACTOR_VEHICULO_NORM = {
+    'MINI': 0.65,    # 8-19 plazas
+    'MIDI': 0.85,    # 20-35 plazas
+    'STD': 1.0,      # 36-55 plazas (referencia)
+    'GRAN': 1.15,    # 56-70 plazas
+    'DOBLE': 1.45    # 70+ plazas (doble piso)
+}
+
+def init_competencia_db():
+    """Inicializa las tablas de análisis de competencia."""
+    conn = get_connection()
+    c = conn.cursor()
+
+    # Tabla de competidores
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS competidores (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre TEXT NOT NULL UNIQUE,
+            segmento TEXT DEFAULT 'estandar',
+            zona_operacion TEXT,
+            flota_estimada INTEGER,
+            fortalezas TEXT,
+            debilidades TEXT,
+            notas TEXT,
+            activo INTEGER DEFAULT 1,
+            fecha_creacion TEXT DEFAULT CURRENT_TIMESTAMP,
+            fecha_actualizacion TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # Tabla de cotizaciones/precios de la competencia
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS cotizaciones_competencia (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            competidor_id INTEGER NOT NULL,
+            tipo_servicio TEXT NOT NULL,
+            tipo_vehiculo TEXT DEFAULT 'STD',
+            precio REAL NOT NULL,
+            kilometros INTEGER,
+            horas REAL,
+            origen TEXT,
+            destino TEXT,
+            fecha_captura TEXT DEFAULT CURRENT_DATE,
+            fuente TEXT,
+            notas TEXT,
+            fecha_registro TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (competidor_id) REFERENCES competidores(id)
+        )
+    ''')
+
+    conn.commit()
+    conn.close()
+
+def guardar_competidor(nombre: str, segmento: str = 'estandar', zona_operacion: str = '',
+                       flota_estimada: int = None, fortalezas: str = '',
+                       debilidades: str = '', notas: str = '') -> int:
+    """Guarda o actualiza un competidor."""
+    conn = get_connection()
+    c = conn.cursor()
+
+    try:
+        c.execute('''
+            INSERT INTO competidores (nombre, segmento, zona_operacion, flota_estimada,
+                                      fortalezas, debilidades, notas)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(nombre) DO UPDATE SET
+                segmento = excluded.segmento,
+                zona_operacion = excluded.zona_operacion,
+                flota_estimada = excluded.flota_estimada,
+                fortalezas = excluded.fortalezas,
+                debilidades = excluded.debilidades,
+                notas = excluded.notas,
+                fecha_actualizacion = CURRENT_TIMESTAMP
+        ''', (nombre, segmento, zona_operacion, flota_estimada, fortalezas, debilidades, notas))
+        conn.commit()
+        return c.lastrowid
+    finally:
+        conn.close()
+
+def obtener_competidores(solo_activos: bool = True) -> list:
+    """Obtiene la lista de competidores."""
+    conn = get_connection()
+    c = conn.cursor()
+
+    query = 'SELECT * FROM competidores'
+    if solo_activos:
+        query += ' WHERE activo = 1'
+    query += ' ORDER BY nombre'
+
+    c.execute(query)
+    cols = [d[0] for d in c.description]
+    result = [dict(zip(cols, row)) for row in c.fetchall()]
+    conn.close()
+    return result
+
+def obtener_competidor_por_id(competidor_id: int) -> dict:
+    """Obtiene un competidor por su ID."""
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute('SELECT * FROM competidores WHERE id = ?', (competidor_id,))
+    row = c.fetchone()
+    conn.close()
+    if row:
+        cols = [d[0] for d in c.description]
+        return dict(zip(cols, row))
+    return None
+
+def desactivar_competidor(competidor_id: int) -> bool:
+    """Desactiva un competidor (soft delete)."""
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute('UPDATE competidores SET activo = 0, fecha_actualizacion = CURRENT_TIMESTAMP WHERE id = ?',
+              (competidor_id,))
+    conn.commit()
+    result = c.rowcount > 0
+    conn.close()
+    return result
+
+def eliminar_competidor(competidor_id: int) -> bool:
+    """Elimina un competidor permanentemente."""
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute('DELETE FROM cotizaciones_competencia WHERE competidor_id = ?', (competidor_id,))
+    c.execute('DELETE FROM competidores WHERE id = ?', (competidor_id,))
+    conn.commit()
+    result = c.rowcount > 0
+    conn.close()
+    return result
+
+def guardar_cotizacion_competencia(competidor_id: int, tipo_servicio: str, precio: float,
+                                   tipo_vehiculo: str = 'STD', km_estimados: int = None,
+                                   duracion_horas: float = None, origen: str = '', destino: str = '',
+                                   fecha_captura: str = None, fuente: str = '', fiabilidad: str = 'probable',
+                                   notas: str = '') -> int:
+    """Guarda una cotización de la competencia con cálculo de precio normalizado."""
+    conn = get_connection()
+    c = conn.cursor()
+
+    if not fecha_captura:
+        fecha_captura = datetime.now().strftime('%Y-%m-%d')
+
+    # Calcular precio por km
+    precio_por_km = precio / km_estimados if km_estimados and km_estimados > 0 else None
+
+    # Normalizar según tipo de vehículo
+    factor = FACTOR_VEHICULO_NORM.get(tipo_vehiculo, 1.0)
+    precio_por_km_norm = precio_por_km / factor if precio_por_km else None
+
+    c.execute('''
+        INSERT INTO cotizaciones_competencia
+        (competidor_id, tipo_servicio, tipo_vehiculo, precio, km_estimados, duracion_horas,
+         origen, destino, fecha_captura, fuente, fiabilidad, notas, precio_por_km, precio_por_km_norm)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (competidor_id, tipo_servicio, tipo_vehiculo, precio, km_estimados, duracion_horas,
+          origen, destino, fecha_captura, fuente, fiabilidad, notas, precio_por_km, precio_por_km_norm))
+    conn.commit()
+    result = c.lastrowid
+    conn.close()
+    return result
+
+def obtener_cotizaciones_competencia(competidor_id: int = None, tipo_servicio: str = None,
+                                     fecha_desde: str = None, fecha_hasta: str = None) -> list:
+    """Obtiene cotizaciones de la competencia con filtros opcionales."""
+    conn = get_connection()
+    c = conn.cursor()
+
+    query = '''
+        SELECT cc.*, comp.nombre as competidor_nombre
+        FROM cotizaciones_competencia cc
+        JOIN competidores comp ON cc.competidor_id = comp.id
+        WHERE 1=1
+    '''
+    params = []
+
+    if competidor_id:
+        query += ' AND cc.competidor_id = ?'
+        params.append(competidor_id)
+    if tipo_servicio:
+        query += ' AND cc.tipo_servicio = ?'
+        params.append(tipo_servicio)
+    if fecha_desde:
+        query += ' AND cc.fecha_captura >= ?'
+        params.append(fecha_desde)
+    if fecha_hasta:
+        query += ' AND cc.fecha_captura <= ?'
+        params.append(fecha_hasta)
+
+    query += ' ORDER BY cc.fecha_captura DESC'
+
+    c.execute(query, params)
+    cols = [d[0] for d in c.description]
+    result = [dict(zip(cols, row)) for row in c.fetchall()]
+    conn.close()
+    return result
+
+def eliminar_cotizacion_competencia(cotizacion_id: int) -> bool:
+    """Elimina una cotización."""
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute('DELETE FROM cotizaciones_competencia WHERE id = ?', (cotizacion_id,))
+    conn.commit()
+    result = c.rowcount > 0
+    conn.close()
+    return result
+
+def obtener_estadisticas_mercado(tipo_servicio: str = None) -> dict:
+    """Obtiene estadísticas agregadas del mercado."""
+    conn = get_connection()
+    c = conn.cursor()
+
+    query = '''
+        SELECT
+            cc.tipo_servicio,
+            cc.tipo_vehiculo,
+            COUNT(*) as num_cotizaciones,
+            AVG(cc.precio) as precio_medio,
+            MIN(cc.precio) as precio_min,
+            MAX(cc.precio) as precio_max,
+            COUNT(DISTINCT cc.competidor_id) as num_competidores
+        FROM cotizaciones_competencia cc
+        WHERE 1=1
+    '''
+    params = []
+
+    if tipo_servicio:
+        query += ' AND cc.tipo_servicio = ?'
+        params.append(tipo_servicio)
+
+    query += ' GROUP BY cc.tipo_servicio, cc.tipo_vehiculo'
+
+    c.execute(query, params)
+    cols = [d[0] for d in c.description]
+    result = [dict(zip(cols, row)) for row in c.fetchall()]
+    conn.close()
+    return result
+
+def obtener_posicion_por_servicio(tipo_servicio: str, precio_david: float,
+                                   tipo_vehiculo: str = 'STD') -> dict:
+    """Calcula la posición competitiva de David para un tipo de servicio."""
+    conn = get_connection()
+    c = conn.cursor()
+
+    c.execute('''
+        SELECT cc.precio, comp.nombre
+        FROM cotizaciones_competencia cc
+        JOIN competidores comp ON cc.competidor_id = comp.id
+        WHERE cc.tipo_servicio = ? AND cc.tipo_vehiculo = ?
+        ORDER BY cc.precio ASC
+    ''', (tipo_servicio, tipo_vehiculo))
+
+    cotizaciones = c.fetchall()
+    conn.close()
+
+    if not cotizaciones:
+        return {'posicion': 1, 'total': 1, 'percentil': 100, 'mas_barato': None, 'mas_caro': None}
+
+    precios = [c[0] for c in cotizaciones]
+    nombres = [c[1] for c in cotizaciones]
+
+    # Insertar precio de David y ordenar
+    todos_precios = sorted(precios + [precio_david])
+    posicion = todos_precios.index(precio_david) + 1
+    total = len(todos_precios)
+    percentil = round((1 - (posicion - 1) / total) * 100, 1)
+
+    return {
+        'posicion': posicion,
+        'total': total,
+        'percentil': percentil,
+        'precio_medio_mercado': sum(precios) / len(precios),
+        'precio_min': min(precios),
+        'precio_max': max(precios),
+        'mas_barato': nombres[0] if precios else None,
+        'mas_caro': nombres[-1] if precios else None,
+        'diferencia_media': round(((precio_david / (sum(precios) / len(precios))) - 1) * 100, 1) if precios else 0
+    }
+
+def obtener_ranking_competidores(tipo_servicio: str = None) -> list:
+    """Obtiene ranking de competidores por precio medio."""
+    conn = get_connection()
+    c = conn.cursor()
+
+    query = '''
+        SELECT
+            comp.nombre,
+            comp.segmento,
+            COUNT(*) as num_cotizaciones,
+            AVG(cc.precio) as precio_medio,
+            MIN(cc.precio) as precio_min,
+            MAX(cc.precio) as precio_max
+        FROM cotizaciones_competencia cc
+        JOIN competidores comp ON cc.competidor_id = comp.id
+        WHERE comp.activo = 1
+    '''
+    params = []
+
+    if tipo_servicio:
+        query += ' AND cc.tipo_servicio = ?'
+        params.append(tipo_servicio)
+
+    query += ' GROUP BY comp.id ORDER BY precio_medio ASC'
+
+    c.execute(query, params)
+    cols = [d[0] for d in c.description]
+    result = [dict(zip(cols, row)) for row in c.fetchall()]
+    conn.close()
+    return result
+
+def detectar_alertas_competencia(umbral_diferencia: float = 15.0) -> list:
+    """Detecta alertas cuando la competencia tiene precios significativamente diferentes."""
+    alertas = []
+    estadisticas = obtener_estadisticas_mercado()
+
+    for stat in estadisticas:
+        # Obtener tarifa de David para este tipo de servicio
+        tarifa_david = obtener_tarifa_servicio(stat['tipo_servicio'], stat['tipo_vehiculo'])
+
+        if tarifa_david and stat['precio_medio']:
+            # Calcular un precio estimado de David (simplificado)
+            precio_estimado_david = tarifa_david.get('precio_base', 0) + \
+                                   tarifa_david.get('precio_km', 0) * 100 + \
+                                   tarifa_david.get('precio_hora', 0) * 8
+
+            diferencia = ((precio_estimado_david / stat['precio_medio']) - 1) * 100
+
+            if abs(diferencia) > umbral_diferencia:
+                alertas.append({
+                    'tipo_servicio': stat['tipo_servicio'],
+                    'tipo_vehiculo': stat['tipo_vehiculo'],
+                    'precio_david': precio_estimado_david,
+                    'precio_mercado': stat['precio_medio'],
+                    'diferencia_pct': round(diferencia, 1),
+                    'alerta': 'MÁS CARO' if diferencia > 0 else 'MÁS BARATO'
+                })
+
+    return alertas
+
+def comparar_con_tarifa_david(tipo_servicio: str, tipo_vehiculo: str = 'STD',
+                              km: int = 100, horas: float = 8) -> dict:
+    """Compara precios de la competencia con la tarifa calculada de David."""
+    # Calcular precio David
+    tarifa_david = calcular_tarifa(tipo_servicio, tipo_vehiculo, km, horas)
+
+    # Obtener cotizaciones de competencia
+    cotizaciones = obtener_cotizaciones_competencia(tipo_servicio=tipo_servicio)
+
+    # Filtrar por tipo de vehículo similar
+    cotizaciones_filtradas = [c for c in cotizaciones if c['tipo_vehiculo'] == tipo_vehiculo]
+
+    if not cotizaciones_filtradas:
+        return {
+            'precio_david': tarifa_david,
+            'comparacion': [],
+            'resumen': None
+        }
+
+    comparacion = []
+    for cot in cotizaciones_filtradas:
+        diferencia = ((tarifa_david / cot['precio']) - 1) * 100 if cot['precio'] else 0
+        comparacion.append({
+            'competidor': cot['competidor_nombre'],
+            'precio': cot['precio'],
+            'diferencia_pct': round(diferencia, 1),
+            'fecha': cot['fecha_captura']
+        })
+
+    precios_comp = [c['precio'] for c in cotizaciones_filtradas]
+
+    return {
+        'precio_david': tarifa_david,
+        'comparacion': comparacion,
+        'resumen': {
+            'precio_medio_competencia': sum(precios_comp) / len(precios_comp),
+            'precio_min_competencia': min(precios_comp),
+            'precio_max_competencia': max(precios_comp),
+            'posicion_david': 'COMPETITIVO' if tarifa_david <= sum(precios_comp) / len(precios_comp) else 'POR ENCIMA'
+        }
+    }
+
+# Inicializar tabla de competencia
+init_competencia_db()
