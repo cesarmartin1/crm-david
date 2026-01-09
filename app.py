@@ -1995,11 +1995,11 @@ elif pagina == "Analisis Mercado":
                                     tipo_servicio=tipo_serv,
                                     precio=precio_cot,
                                     tipo_vehiculo=tipo_veh,
-                                    kilometros=km_cot if km_cot > 0 else None,
-                                    horas=horas_cot if horas_cot > 0 else None,
+                                    km_estimados=km_cot if km_cot > 0 else None,
+                                    duracion_horas=horas_cot if horas_cot > 0 else None,
                                     origen=origen_cot,
                                     destino=destino_cot,
-                                    fecha_cotizacion=fecha_cot.strftime('%Y-%m-%d'),
+                                    fecha_captura=fecha_cot.strftime('%Y-%m-%d'),
                                     fuente=fuente_cot,
                                     notas=notas_cot
                                 )
@@ -2030,7 +2030,7 @@ elif pagina == "Analisis Mercado":
 
                 if cotizaciones:
                     df_cot = pd.DataFrame(cotizaciones)
-                    df_cot_show = df_cot[['competidor_nombre', 'tipo_servicio', 'tipo_vehiculo', 'precio', 'fecha_cotizacion']].copy()
+                    df_cot_show = df_cot[['competidor_nombre', 'tipo_servicio', 'tipo_vehiculo', 'precio', 'fecha_captura']].copy()
                     df_cot_show.columns = ['Competidor', 'Servicio', 'Vehículo', 'Precio', 'Fecha']
                     df_cot_show['Precio'] = df_cot_show['Precio'].apply(lambda x: f"{x:,.0f}€")
 
