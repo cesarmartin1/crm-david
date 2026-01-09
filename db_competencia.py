@@ -48,7 +48,7 @@ def limpiar_cache_cotizaciones():
 # COMPETIDORES (con caché)
 # ============================================
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner="Cargando competidores...")
 def _obtener_competidores_cached(solo_activos: bool = True) -> list:
     """Versión cacheada de obtener competidores."""
     client = get_admin_client()
@@ -115,7 +115,7 @@ def eliminar_competidor(competidor_id: int) -> bool:
 # COTIZACIONES (con caché)
 # ============================================
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner="Cargando cotizaciones...")
 def _obtener_cotizaciones_cached(competidor_id: int = None, tipo_servicio: str = None) -> list:
     """Versión cacheada de obtener cotizaciones."""
     client = get_admin_client()
@@ -177,7 +177,7 @@ def eliminar_cotizacion_competencia(cotizacion_id: int) -> bool:
 # VEHÍCULOS (con caché)
 # ============================================
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner="Cargando vehículos...")
 def _obtener_vehiculos_cached(competidor_id: int = None, solo_activos: bool = True) -> list:
     """Versión cacheada de obtener vehículos."""
     client = get_admin_client()
@@ -288,7 +288,7 @@ def importar_vehiculos_masivo(competidor_id: int, vehiculos: list) -> int:
 # ESTADÍSTICAS (con caché)
 # ============================================
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner="Calculando estadísticas...")
 def _obtener_estadisticas_flota_cached() -> list:
     """Versión cacheada de estadísticas de flota."""
     client = get_admin_client()
@@ -358,7 +358,7 @@ def obtener_estadisticas_flota_competencia(competidor_id: int = None) -> list:
         return [s for s in stats if s['competidor_id'] == competidor_id]
     return stats
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner="Generando comparativa...")
 def _obtener_comparativa_flotas_cached() -> dict:
     """Versión cacheada de comparativa de flotas."""
     stats = _obtener_estadisticas_flota_cached()
@@ -389,7 +389,7 @@ def obtener_comparativa_flotas() -> dict:
     """Obtiene una comparativa de flotas entre competidores (cacheado)."""
     return _obtener_comparativa_flotas_cached()
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner="Analizando mercado...")
 def _obtener_estadisticas_mercado_cached(tipo_servicio: str = None) -> list:
     """Versión cacheada de estadísticas de mercado."""
     client = get_admin_client()
@@ -426,7 +426,7 @@ def obtener_estadisticas_mercado(tipo_servicio: str = None) -> list:
     """Obtiene estadísticas agregadas del mercado (cacheado)."""
     return _obtener_estadisticas_mercado_cached(tipo_servicio)
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner="Calculando ranking...")
 def _obtener_ranking_cached() -> list:
     """Versión cacheada de ranking de competidores."""
     client = get_admin_client()

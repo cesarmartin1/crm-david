@@ -1905,15 +1905,30 @@ elif pagina == "Analisis Mercado":
     st.title("📊 Análisis de Mercado")
     st.caption("Seguimiento de competencia y posicionamiento de precios")
 
+    # Placeholder de carga inicial
+    loading_placeholder = st.empty()
+
+    # Cargar datos principales con indicador de progreso
+    with loading_placeholder.container():
+        progress_bar = st.progress(0, text="Iniciando carga de datos...")
+        progress_bar.progress(20, text="Cargando competidores...")
+        comparativa_data = obtener_comparativa_flotas()
+        progress_bar.progress(60, text="Cargando estadísticas...")
+        competidores_data = obtener_competidores()
+        progress_bar.progress(100, text="¡Listo!")
+
+    # Limpiar placeholder
+    loading_placeholder.empty()
+
     tab0, tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Dashboard", "🏢 Competidores", "💰 Cotizaciones", "🚌 Flotas", "📈 Análisis", "⚠️ Alertas"])
 
     # TAB 0: DASHBOARD EJECUTIVO
     with tab0:
         st.subheader("Dashboard Ejecutivo")
 
-        # Obtener datos
-        comparativa = obtener_comparativa_flotas()
-        competidores = obtener_competidores()
+        # Usar datos precargados
+        comparativa = comparativa_data
+        competidores = competidores_data
         stats_flota = comparativa.get('competidores', [])
         resumen = comparativa.get('resumen', {})
 
@@ -2021,7 +2036,7 @@ elif pagina == "Analisis Mercado":
     with tab1:
         st.subheader("Gestión de Competidores")
 
-        competidores = obtener_competidores()
+        competidores = competidores_data
         stats_flota = obtener_estadisticas_flota_competencia()
 
         # Selector de competidor
@@ -2215,7 +2230,7 @@ elif pagina == "Analisis Mercado":
     with tab2:
         st.subheader("Inteligencia de Precios")
 
-        competidores = obtener_competidores()
+        competidores = competidores_data
 
         if not competidores:
             st.warning("Primero debes registrar al menos un competidor")
@@ -2364,7 +2379,7 @@ elif pagina == "Analisis Mercado":
     with tab3:
         st.subheader("Gestión de Flotas de Competidores")
 
-        competidores = obtener_competidores()
+        competidores = competidores_data
 
         if not competidores:
             st.warning("Primero debes añadir competidores en la pestaña 'Competidores'")
