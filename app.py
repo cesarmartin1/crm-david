@@ -2163,14 +2163,34 @@ elif pagina == "Analisis Mercado":
                     else:
                         st.info("No hay vehículos registrados para este competidor")
 
-                # Acciones
+                # Acciones - Eliminar con doble confirmación
                 st.divider()
+
+                # Inicializar estado de confirmación
+                if 'confirmar_eliminar_comp' not in st.session_state:
+                    st.session_state.confirmar_eliminar_comp = None
+
                 col_act1, col_act2 = st.columns(2)
                 with col_act1:
-                    if st.button("🗑️ Eliminar competidor", type="secondary"):
-                        eliminar_competidor(comp_data['id'])
-                        st.success(f"Competidor '{comp_seleccionado}' eliminado")
-                        st.rerun()
+                    if st.session_state.confirmar_eliminar_comp == comp_data['id']:
+                        # Segunda confirmación
+                        st.warning(f"⚠️ ¿Seguro que quieres eliminar **{comp_seleccionado}** y todos sus datos (vehículos, cotizaciones)?")
+                        col_conf1, col_conf2 = st.columns(2)
+                        with col_conf1:
+                            if st.button("✅ Sí, eliminar todo", type="primary", key="btn_confirmar_elim"):
+                                eliminar_competidor(comp_data['id'])
+                                st.session_state.confirmar_eliminar_comp = None
+                                st.success(f"Competidor '{comp_seleccionado}' eliminado con todos sus datos")
+                                st.rerun()
+                        with col_conf2:
+                            if st.button("❌ Cancelar", key="btn_cancelar_elim"):
+                                st.session_state.confirmar_eliminar_comp = None
+                                st.rerun()
+                    else:
+                        # Primera confirmación
+                        if st.button("🗑️ Eliminar competidor", type="secondary", key="btn_elim_comp"):
+                            st.session_state.confirmar_eliminar_comp = comp_data['id']
+                            st.rerun()
 
         st.divider()
 
