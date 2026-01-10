@@ -5821,6 +5821,10 @@ elif pagina == "Calculadora":
                 origen_guardado = st.session_state.get('calc_origen_nombre', '')
                 origen_txt = st.text_input("Origen (recogida)", value=origen_guardado, placeholder="Ej: Aeropuerto Bilbao", key="input_origen")
 
+                # Mostrar dirección geocodificada
+                if st.session_state.get('calc_origen_dir'):
+                    st.markdown(f"<span style='font-size:11px;color:#888;'>📍 {st.session_state.calc_origen_dir}</span>", unsafe_allow_html=True)
+
                 # Geocodificar cuando hay texto y es diferente al guardado
                 if origen_txt and origen_txt != origen_guardado:
                     geo = geocodificar_direccion(origen_txt)
@@ -5837,6 +5841,10 @@ elif pagina == "Calculadora":
             with col_dest:
                 destino_guardado = st.session_state.get('calc_destino_nombre', '')
                 destino_txt = st.text_input("Destino (llegada)", value=destino_guardado, placeholder="Ej: Hotel Gran Bilbao", key="input_destino")
+
+                # Mostrar dirección geocodificada
+                if st.session_state.get('calc_destino_dir'):
+                    st.markdown(f"<span style='font-size:11px;color:#888;'>📍 {st.session_state.calc_destino_dir}</span>", unsafe_allow_html=True)
 
                 # Geocodificar cuando hay texto y es diferente al guardado
                 if destino_txt and destino_txt != destino_guardado:
@@ -5859,6 +5867,9 @@ elif pagina == "Calculadora":
                     c1, c2 = st.columns([6, 1])
                     with c1:
                         nuevo_txt = st.text_input(f"Parada {i+1}", value=parada['texto'], key=f"parada_{i}", label_visibility="collapsed")
+                        # Mostrar dirección geocodificada de la parada
+                        if parada.get('dir'):
+                            st.markdown(f"<span style='font-size:11px;color:#888;'>📍 {parada['dir']}</span>", unsafe_allow_html=True)
                         if nuevo_txt != parada['texto']:
                             if nuevo_txt:
                                 geo = geocodificar_direccion(nuevo_txt)
