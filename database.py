@@ -393,17 +393,25 @@ def eliminar_temporada(codigo: str):
     client.table('temporadas').delete().eq('codigo', codigo).execute()
     limpiar_cache_tarifas()
 
-def obtener_temporada_por_fecha(fecha: str):
-    """Obtiene la temporada activa para una fecha (formato MM-DD)."""
+def obtener_temporada_por_fecha(fecha):
+    """Obtiene la temporada activa para una fecha (acepta date, datetime o string MM-DD)."""
+    from datetime import date, datetime
+
+    # Convertir fecha a formato MM-DD si es date/datetime
+    if isinstance(fecha, (date, datetime)):
+        fecha_str = fecha.strftime('%m-%d')
+    else:
+        fecha_str = str(fecha)
+
     temporadas = obtener_temporadas()
     for t in temporadas:
         inicio = t['fecha_inicio']
         fin = t['fecha_fin']
         if inicio <= fin:
-            if inicio <= fecha <= fin:
+            if inicio <= fecha_str <= fin:
                 return t
         else:  # Temporada que cruza año (ej: 12-01 a 01-15)
-            if fecha >= inicio or fecha <= fin:
+            if fecha_str >= inicio or fecha_str <= fin:
                 return t
     return None
 
