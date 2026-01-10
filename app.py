@@ -5880,21 +5880,20 @@ elif pagina == "Calculadora":
                             st.session_state.calc_paradas.pop(i)
                             st.rerun()
 
-            # Añadir nueva parada - con botón explícito para evitar duplicados
-            with st.expander("+ Añadir parada"):
-                col_p1, col_p2 = st.columns([4, 1])
-                with col_p1:
-                    parada_txt = st.text_input("Nueva parada", placeholder="Ej: Vitoria", key="input_parada_new", label_visibility="collapsed")
-                with col_p2:
-                    btn_add = st.button("Añadir", key="btn_add_parada", type="primary")
+            # Añadir nueva parada - dinámico
+            nueva_parada_txt = st.text_input("+ Añadir parada", placeholder="Escribe una parada y pulsa Enter...", key="input_parada_new", label_visibility="visible")
 
-                if btn_add and parada_txt:
-                    geo = geocodificar_direccion(parada_txt)
-                    if geo:
-                        st.session_state.calc_paradas.append({'texto': parada_txt, 'dir': geo[2], 'coords': (geo[0], geo[1])})
-                        st.rerun()
-                    else:
-                        st.error("No se encontró la dirección")
+            # Geocodificar y añadir automáticamente cuando hay texto nuevo
+            if nueva_parada_txt and nueva_parada_txt != st.session_state.get('_ultima_parada_añadida', ''):
+                geo = geocodificar_direccion(nueva_parada_txt)
+                if geo:
+                    st.session_state.calc_paradas.append({'texto': nueva_parada_txt, 'dir': geo[2], 'coords': (geo[0], geo[1])})
+                    st.session_state._ultima_parada_añadida = nueva_parada_txt
+                    # Limpiar el input para la siguiente parada
+                    st.session_state.input_parada_new = ""
+                    st.rerun()
+                else:
+                    st.caption("⚠️ No se encontró la dirección")
 
             st.markdown("---")
 
