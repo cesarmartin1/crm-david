@@ -7027,7 +7027,7 @@ elif pagina == "Tarifas":
     with tab_config:
         st.markdown("### ⚙️ Configuración de Tarifas")
 
-        cfg_sub1, cfg_sub2, cfg_sub3 = st.tabs(["🚌 Tipos de Bus", "👥 Segmentos Cliente", "📄 Informes"])
+        cfg_sub1, cfg_sub2, cfg_sub3, cfg_sub4 = st.tabs(["🚌 Tipos de Bus", "👥 Segmentos Cliente", "🚐 Mi Flota", "📄 Informes"])
 
         # -------- SUB-TAB: TIPOS DE BUS --------
         with cfg_sub1:
@@ -7239,8 +7239,125 @@ elif pagina == "Tarifas":
                 else:
                     st.error("Completa código y nombre")
 
-        # -------- SUB-TAB: INFORMES --------
+        # -------- SUB-TAB: MI FLOTA --------
         with cfg_sub3:
+            st.markdown("#### 🚐 Importar Vehículos")
+            st.caption("Importa tu flota desde el archivo Excel de Vehiculos.xlsx")
+
+            # Ruta del archivo
+            ruta_vehiculos = '/Users/cesarmartin/Library/CloudStorage/OneDrive-AutocaresDavid/supercarpeta/Vehiculos.xlsx'
+
+            # Verificar si existe el archivo
+            import os
+            if os.path.exists(ruta_vehiculos):
+                st.success(f"📂 Archivo encontrado: Vehiculos.xlsx")
+
+                # Mostrar preview del archivo
+                with st.expander("👁️ Vista previa del archivo", expanded=False):
+                    try:
+                        df_preview = pd.read_excel(ruta_vehiculos)
+                        st.dataframe(df_preview[['Código de vehículo', 'Vehículo tipo', 'Matrícula', 'Marca', 'Modelo', 'Plazas', 'Estado']].head(10), hide_index=True)
+                        st.caption(f"Total: {len(df_preview)} vehículos en el archivo")
+                    except Exception as e:
+                        st.error(f"Error leyendo archivo: {e}")
+
+                # Botón para importar
+                col_imp1, col_imp2 = st.columns([2, 1])
+                with col_imp1:
+                    if st.button("📥 Importar Vehículos", type="primary", key="btn_importar_vehiculos", use_container_width=True):
+                        try:
+                            from database import importar_vehiculos_excel
+                            importados, errores = importar_vehiculos_excel(ruta_vehiculos)
+                            st.success(f"✅ {importados} vehículos importados correctamente")
+                            if errores:
+                                with st.expander("⚠️ Errores"):
+                                    for err in errores:
+                                        st.warning(err)
+                        except Exception as e:
+                            if 'vehiculos' in str(e).lower() and ('not exist' in str(e).lower() or 'PGRST' in str(e)):
+                                st.error("❌ La tabla 'vehiculos' no existe en Supabase.")
+                                st.info("Crea la tabla ejecutando este SQL en Supabase → SQL Editor:")
+                                st.code("""
+CREATE TABLE vehiculos (
+    id SERIAL PRIMARY KEY,
+    codigo VARCHAR(20) UNIQUE NOT NULL,
+    tipo VARCHAR(50),
+    matricula VARCHAR(20),
+    marca VARCHAR(50),
+    modelo VARCHAR(100),
+    plazas INTEGER,
+    conductor VARCHAR(100),
+    estado VARCHAR(1) DEFAULT 'A',
+    fecha_itv DATE,
+    fecha_tacografo DATE,
+    kilometros INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+                                """, language="sql")
+                            else:
+                                st.error(f"Error: {e}")
+                with col_imp2:
+                    st.caption("Sincroniza desde OneDrive")
+
+            else:
+                st.warning(f"📂 Archivo no encontrado: {ruta_vehiculos}")
+                st.info("Asegúrate de que OneDrive está sincronizado")
+
+            st.markdown("---")
+
+            # Mostrar vehículos importados
+            st.markdown("#### Vehículos en el Sistema")
+            try:
+                from database import obtener_vehiculos, obtener_todos_vehiculos
+                vehiculos = obtener_todos_vehiculos()
+
+                if vehiculos:
+                    # Agrupar por tipo
+                    from collections import defaultdict
+                    por_tipo = defaultdict(list)
+                    for v in vehiculos:
+                        por_tipo[v.get('tipo', 'Sin tipo')].append(v)
+
+                    # Mostrar resumen
+                    cols_resumen = st.columns(len(por_tipo))
+                    for i, (tipo, vehs) in enumerate(sorted(por_tipo.items())):
+                        with cols_resumen[i]:
+                            activos = len([v for v in vehs if v.get('estado') == 'A'])
+                            st.metric(tipo, f"{activos}/{len(vehs)}", help=f"{activos} activos de {len(vehs)} total")
+
+                    # Tabla detallada
+                    with st.expander("📋 Ver todos los vehículos", expanded=True):
+                        df_vehs = pd.DataFrame(vehiculos)
+                        cols_mostrar = ['matricula', 'tipo', 'marca', 'modelo', 'plazas', 'conductor', 'estado', 'fecha_itv', 'kilometros']
+                        cols_disponibles = [c for c in cols_mostrar if c in df_vehs.columns]
+                        st.dataframe(df_vehs[cols_disponibles], hide_index=True, use_container_width=True)
+
+                    # Alertas de ITV/Tacógrafo
+                    from datetime import datetime, timedelta
+                    hoy = datetime.now().date()
+                    proximos_30 = hoy + timedelta(days=30)
+
+                    alertas_itv = [v for v in vehiculos if v.get('fecha_itv') and pd.to_datetime(v['fecha_itv']).date() <= proximos_30]
+                    alertas_taco = [v for v in vehiculos if v.get('fecha_tacografo') and pd.to_datetime(v['fecha_tacografo']).date() <= proximos_30]
+
+                    if alertas_itv or alertas_taco:
+                        st.markdown("#### ⚠️ Alertas")
+                        if alertas_itv:
+                            st.warning(f"**ITV próxima (30 días):** {', '.join([v['matricula'] for v in alertas_itv])}")
+                        if alertas_taco:
+                            st.warning(f"**Tacógrafo próximo (30 días):** {', '.join([v['matricula'] for v in alertas_taco])}")
+
+                else:
+                    st.info("No hay vehículos importados. Usa el botón de arriba para importar.")
+
+            except Exception as e:
+                if 'vehiculos' in str(e).lower():
+                    st.info("La tabla de vehículos aún no existe. Importa los vehículos para crearla.")
+                else:
+                    st.error(f"Error: {e}")
+
+        # -------- SUB-TAB: INFORMES --------
+        with cfg_sub4:
             st.markdown("### Generar Informe PDF")
             st.caption("Exporta las tarifas configuradas a PDF")
 

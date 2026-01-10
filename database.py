@@ -450,6 +450,103 @@ def eliminar_tipo_bus(codigo: str):
 
 
 # ============================================
+# VEHÍCULOS (FLOTA)
+# ============================================
+
+def guardar_vehiculo(codigo: str, tipo: str, matricula: str, marca: str, modelo: str,
+                     plazas: int, conductor: str = None, estado: str = 'A',
+                     fecha_itv: str = None, fecha_tacografo: str = None, km: int = 0):
+    """Guarda o actualiza un vehículo de la flota."""
+    client = get_admin_client()
+    client.table('vehiculos').upsert({
+        'codigo': codigo,
+        'tipo': tipo,
+        'matricula': matricula,
+        'marca': marca,
+        'modelo': modelo,
+        'plazas': plazas,
+        'conductor': conductor,
+        'estado': estado,
+        'fecha_itv': fecha_itv,
+        'fecha_tacografo': fecha_tacografo,
+        'kilometros': km
+    }).execute()
+    limpiar_cache_vehiculos()
+
+@st.cache_data(ttl=300)
+def obtener_vehiculos():
+    """Obtiene todos los vehículos activos (cacheado)."""
+    client = get_admin_client()
+    result = client.table('vehiculos').select('*').eq('estado', 'A').order('tipo').order('plazas').execute()
+    return result.data or []
+
+def obtener_todos_vehiculos():
+    """Obtiene todos los vehículos incluyendo inactivos."""
+    client = get_admin_client()
+    result = client.table('vehiculos').select('*').order('tipo').order('plazas').execute()
+    return result.data or []
+
+def eliminar_vehiculo(codigo: str):
+    """Elimina un vehículo."""
+    client = get_admin_client()
+    client.table('vehiculos').delete().eq('codigo', codigo).execute()
+    limpiar_cache_vehiculos()
+
+def limpiar_cache_vehiculos():
+    """Limpia caché de vehículos."""
+    obtener_vehiculos.clear()
+
+def importar_vehiculos_excel(ruta_excel: str):
+    """Importa vehículos desde un archivo Excel."""
+    import pandas as pd
+    df = pd.read_excel(ruta_excel)
+
+    importados = 0
+    errores = []
+
+    for _, row in df.iterrows():
+        try:
+            codigo = str(row.get('Código de vehículo', ''))
+            if not codigo:
+                continue
+
+            # Formatear fecha ITV
+            fecha_itv = None
+            if pd.notna(row.get('Fecha final ITV')):
+                try:
+                    fecha_itv = pd.to_datetime(row['Fecha final ITV']).strftime('%Y-%m-%d')
+                except:
+                    pass
+
+            # Formatear fecha tacógrafo
+            fecha_taco = None
+            if pd.notna(row.get('Fecha final tacógrafo')):
+                try:
+                    fecha_taco = pd.to_datetime(row['Fecha final tacógrafo']).strftime('%Y-%m-%d')
+                except:
+                    pass
+
+            guardar_vehiculo(
+                codigo=codigo,
+                tipo=str(row.get('Vehículo tipo', '')),
+                matricula=str(row.get('Matrícula', '')),
+                marca=str(row.get('Marca', '')),
+                modelo=str(row.get('Modelo', '')),
+                plazas=int(row.get('Plazas', 0)),
+                conductor=str(row.get('Conductor', '')) if pd.notna(row.get('Conductor')) else None,
+                estado=str(row.get('Estado', 'A')),
+                fecha_itv=fecha_itv,
+                fecha_tacografo=fecha_taco,
+                km=int(row.get('Kilómetros', 0)) if pd.notna(row.get('Kilómetros')) else 0
+            )
+            importados += 1
+        except Exception as e:
+            errores.append(f"Fila {_}: {str(e)}")
+
+    return importados, errores
+
+
+# ============================================
 # TIPOS DE CLIENTE
 # ============================================
 
