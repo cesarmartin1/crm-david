@@ -6557,316 +6557,357 @@ elif pagina == "Calculadora":
 # PAGINA 9: TARIFAS - CONFIGURACION
 # ============================================
 elif pagina == "Tarifas":
-    st.title("Gestión de Tarifas")
-    st.caption("Configura tarifas y gestiona clientes VIP")
+    st.title("💰 Gestión de Tarifas")
 
     tipos_servicio_guardados = obtener_tipos_servicio_db()
 
-    # 3 TABS: Configuración, VIP, Informes
-    tab_config, tab_vip, tab_informes = st.tabs([
-        "Configuracion", "Clientes VIP", "Informes"
+    # 4 TABS principales más claros
+    tab_matriz, tab_temporadas, tab_vip, tab_config = st.tabs([
+        "📊 Matriz Tarifas", "📅 Temporadas", "⭐ Clientes VIP", "⚙️ Configuración"
     ])
 
-    # ========== TAB CONFIGURACION - CON EXPANDERS ==========
-    with tab_config:
-        # Sub-tabs para mejor organización
-        cfg_tab1, cfg_tab2, cfg_tab3, cfg_tab4 = st.tabs([
-            "Temporadas", "Buses", "Segmentos", "Tarifas Servicio"
-        ])
+    # ========== TAB MATRIZ TARIFAS ==========
+    with tab_matriz:
+        st.markdown("### Matriz de Tarifas por Servicio y Bus")
+        st.caption("Vista rápida de todas las tarifas. Haz clic en una celda para editarla.")
 
-        # -------- TAB: TEMPORADAS --------
-        with cfg_tab1:
-            st.markdown("#### Temporadas y Multiplicadores")
-            st.caption("Define multiplicadores de precio según la época del año. Usa el calendario para seleccionar las fechas.")
+        tipos_bus_matriz = obtener_tipos_bus()
+        tipos_srv_matriz = obtener_tipos_servicio_db()
+        tarifas_srv_matriz = obtener_tarifas_servicio()
 
-            temporadas_cfg = obtener_temporadas()
+        if tipos_bus_matriz and tipos_srv_matriz:
+            # Crear diccionario de tarifas para acceso rápido
+            tarifas_dict = {}
+            for t in tarifas_srv_matriz:
+                key = (t['tipo_servicio'], t['tipo_bus'])
+                tarifas_dict[key] = t
 
-            # Mostrar temporadas existentes con estilo visual
-            if temporadas_cfg:
-                for t in temporadas_cfg:
-                    mult = float(t['multiplicador'])
-                    if mult < 1:
-                        color_bg = "#E8F5E9"
-                        color_border = "#4CAF50"
-                        badge = "🔽 Baja"
-                    elif mult > 1:
-                        color_bg = "#FFF3E0"
-                        color_border = "#FF9800"
-                        badge = "🔼 Alta"
+            # Ordenar buses por capacidad
+            buses_ordenados = sorted(tipos_bus_matriz, key=lambda x: x.get('capacidad', 0) or 0)
+            codigos_bus = [b['codigo'] for b in buses_ordenados]
+            nombres_bus = [f"{b['nombre']}" for b in buses_ordenados]
+
+            # Crear matriz visual con HTML
+            st.markdown("#### Vista General")
+
+            # Header de la tabla
+            header_html = "<table style='width:100%; border-collapse: collapse; font-size: 13px;'>"
+            header_html += "<tr style='background: #f0f2f6;'><th style='padding: 10px; border: 1px solid #ddd; text-align: left;'>Servicio</th>"
+            for nombre in nombres_bus:
+                header_html += f"<th style='padding: 10px; border: 1px solid #ddd; text-align: center; min-width: 100px;'>{nombre}</th>"
+            header_html += "</tr>"
+
+            # Filas de la tabla
+            rows_html = ""
+            for codigo_srv, info_srv in sorted(tipos_srv_matriz.items()):
+                desc_srv = info_srv.get('descripcion', codigo_srv)[:25]
+                rows_html += f"<tr><td style='padding: 8px 10px; border: 1px solid #ddd; font-weight: 500;'>{desc_srv}</td>"
+
+                for codigo_bus in codigos_bus:
+                    tarifa = tarifas_dict.get((codigo_srv, codigo_bus))
+                    if tarifa:
+                        hora = tarifa.get('precio_hora', 0) or 0
+                        km = tarifa.get('precio_km', 0) or 0
+                        cell_bg = "#e8f5e9" if hora > 0 else "#fff3e0"
+                        rows_html += f"<td style='padding: 8px; border: 1px solid #ddd; text-align: center; background: {cell_bg};'>"
+                        rows_html += f"<b>{hora:.0f}€/h</b><br><span style='font-size:11px; color:#666;'>{km:.2f}€/km</span></td>"
                     else:
-                        color_bg = "#F5F5F5"
-                        color_border = "#9E9E9E"
-                        badge = "➖ Normal"
+                        rows_html += "<td style='padding: 8px; border: 1px solid #ddd; text-align: center; color: #ccc;'>—</td>"
 
-                    st.markdown(f"""
-                    <div style="background: {color_bg}; border-left: 4px solid {color_border}; padding: 12px 16px; border-radius: 8px; margin-bottom: 10px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <div>
-                                <strong style="font-size: 16px;">{t['nombre']}</strong>
-                                <span style="margin-left: 10px; background: {color_border}; color: white; padding: 2px 8px; border-radius: 12px; font-size: 12px;">{badge}</span>
-                            </div>
-                            <div style="font-size: 24px; font-weight: bold; color: {color_border};">x{mult:.2f}</div>
-                        </div>
-                        <div style="color: #666; margin-top: 5px;">📅 {t['fecha_inicio']} → {t['fecha_fin']}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                rows_html += "</tr>"
 
-                    if st.button(f"🗑️ Eliminar {t['nombre']}", key=f"del_temp_{t['codigo']}"):
-                        eliminar_temporada(t['codigo'])
-                        st.rerun()
-            else:
-                st.info("No hay temporadas definidas. Añade una nueva o carga las de ejemplo.")
+            st.markdown(header_html + rows_html + "</table>", unsafe_allow_html=True)
+
+            # Leyenda
+            st.markdown("""
+            <div style='margin-top: 10px; font-size: 12px; color: #666;'>
+                <span style='background: #e8f5e9; padding: 2px 8px; border-radius: 4px; margin-right: 10px;'>✓ Tarifa definida</span>
+                <span style='color: #ccc;'>— Sin tarifa (usa precio base del bus)</span>
+            </div>
+            """, unsafe_allow_html=True)
 
             st.markdown("---")
-            st.markdown("##### Añadir Nueva Temporada")
 
-            col_nt1, col_nt2 = st.columns(2)
-            with col_nt1:
-                new_temp_cod = st.text_input("Código", placeholder="ALTA", key="new_temp_cod", help="Código único (ej: ALTA, BAJA, NAVIDAD)")
-                new_temp_nom = st.text_input("Nombre", placeholder="Temporada Alta", key="new_temp_nom")
-                new_temp_mult = st.slider("Multiplicador", min_value=0.50, max_value=2.00, value=1.00, step=0.05, key="new_temp_mult",
-                                          help="< 1.0 = descuento, 1.0 = normal, > 1.0 = recargo")
-                mult_preview = new_temp_mult
-                if mult_preview < 1:
-                    st.success(f"🔽 Descuento del {(1-mult_preview)*100:.0f}%")
-                elif mult_preview > 1:
-                    st.warning(f"🔼 Recargo del {(mult_preview-1)*100:.0f}%")
+            # Formulario rápido para añadir/editar tarifa
+            st.markdown("#### ➕ Añadir o Editar Tarifa")
+
+            col_form1, col_form2 = st.columns(2)
+
+            with col_form1:
+                # Selector de servicio con descripción
+                opciones_srv = [f"{k} - {v.get('descripcion', k)[:30]}" for k, v in tipos_srv_matriz.items()]
+                srv_sel_idx = st.selectbox("Tipo de Servicio", range(len(opciones_srv)),
+                                           format_func=lambda i: opciones_srv[i], key="matriz_srv_sel")
+                codigo_srv_sel = list(tipos_srv_matriz.keys())[srv_sel_idx] if opciones_srv else None
+
+                # Selector de bus con nombre
+                opciones_bus = [f"{b['nombre']} ({b['capacidad']} plz)" for b in buses_ordenados]
+                bus_sel_idx = st.selectbox("Tipo de Bus", range(len(opciones_bus)),
+                                           format_func=lambda i: opciones_bus[i], key="matriz_bus_sel")
+                codigo_bus_sel = codigos_bus[bus_sel_idx] if opciones_bus else None
+
+            with col_form2:
+                # Mostrar tarifa actual si existe
+                tarifa_actual = tarifas_dict.get((codigo_srv_sel, codigo_bus_sel)) if codigo_srv_sel and codigo_bus_sel else None
+
+                if tarifa_actual:
+                    st.info(f"📝 Editando tarifa existente (ID: {tarifa_actual['id']})")
+                    default_base = tarifa_actual.get('precio_base', 0) or 0
+                    default_hora = tarifa_actual.get('precio_hora', 0) or 0
+                    default_km = tarifa_actual.get('precio_km', 0) or 0
                 else:
-                    st.info("➖ Precio normal (sin ajuste)")
+                    st.success("🆕 Nueva tarifa")
+                    default_base = 0.0
+                    default_hora = 50.0
+                    default_km = 1.20
 
-            with col_nt2:
-                st.markdown("**Rango de fechas:**")
-                # Usar date_input con calendario
-                año_actual = datetime.now().year
-                fecha_ini_default = datetime(año_actual, 6, 15)
-                fecha_fin_default = datetime(año_actual, 9, 15)
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    new_base = st.number_input("Base €", min_value=0.0, value=float(default_base), step=10.0, key="matriz_base")
+                with c2:
+                    new_hora = st.number_input("€/Hora", min_value=0.0, value=float(default_hora), step=5.0, key="matriz_hora")
+                with c3:
+                    new_km = st.number_input("€/Km", min_value=0.0, value=float(default_km), step=0.05, key="matriz_km")
 
-                new_temp_fecha_ini = st.date_input("Fecha de inicio", value=fecha_ini_default, key="new_temp_ini_cal", format="DD/MM/YYYY")
-                new_temp_fecha_fin = st.date_input("Fecha de fin", value=fecha_fin_default, key="new_temp_fin_cal", format="DD/MM/YYYY")
+            col_btn1, col_btn2, col_btn3 = st.columns([2, 1, 1])
+            with col_btn1:
+                if st.button("💾 Guardar Tarifa", type="primary", key="btn_matriz_save", use_container_width=True):
+                    if codigo_srv_sel and codigo_bus_sel:
+                        # Si existe, eliminar primero
+                        if tarifa_actual:
+                            eliminar_tarifa_servicio(tarifa_actual['id'])
+                        guardar_tarifa_servicio(codigo_srv_sel, codigo_bus_sel, new_base, new_hora, new_km)
+                        st.success("✅ Tarifa guardada")
+                        st.rerun()
+            with col_btn2:
+                if tarifa_actual:
+                    if st.button("🗑️ Eliminar", key="btn_matriz_del"):
+                        eliminar_tarifa_servicio(tarifa_actual['id'])
+                        st.rerun()
+            with col_btn3:
+                pass
 
-                # Convertir a formato MM-DD
-                fecha_ini_str = new_temp_fecha_ini.strftime("%m-%d")
-                fecha_fin_str = new_temp_fecha_fin.strftime("%m-%d")
+            # Carga rápida de tarifas
+            st.markdown("---")
+            with st.expander("📥 Carga rápida de tarifas"):
+                st.caption("Añade múltiples tarifas a la vez seleccionando un bus y definiendo precios para varios servicios")
 
-                st.caption(f"Se guardará como: {fecha_ini_str} → {fecha_fin_str}")
+                bus_carga = st.selectbox("Bus para carga rápida", opciones_bus, key="carga_bus")
+                idx_bus_carga = opciones_bus.index(bus_carga)
+                codigo_bus_carga = codigos_bus[idx_bus_carga]
 
-                if st.button("💾 Guardar Temporada", key="btn_save_temp", type="primary"):
+                st.markdown("**Precios por servicio:**")
+                precios_carga = {}
+                cols = st.columns(3)
+                for i, (codigo_srv, info) in enumerate(tipos_srv_matriz.items()):
+                    with cols[i % 3]:
+                        desc = info.get('descripcion', codigo_srv)[:20]
+                        precio = st.number_input(f"{desc}", min_value=0.0, value=0.0, step=5.0,
+                                                key=f"carga_{codigo_srv}", help=f"€/hora para {codigo_srv}")
+                        if precio > 0:
+                            precios_carga[codigo_srv] = precio
+
+                if st.button("💾 Guardar Todas", type="primary", key="btn_carga_todas"):
+                    guardados = 0
+                    for codigo_srv, precio_hora in precios_carga.items():
+                        # Buscar si existe
+                        existente = tarifas_dict.get((codigo_srv, codigo_bus_carga))
+                        if existente:
+                            eliminar_tarifa_servicio(existente['id'])
+                        guardar_tarifa_servicio(codigo_srv, codigo_bus_carga, 0, precio_hora, 1.20)
+                        guardados += 1
+                    if guardados > 0:
+                        st.success(f"✅ {guardados} tarifas guardadas")
+                        st.rerun()
+
+        else:
+            st.warning("Configura primero tipos de bus y servicios en la pestaña Configuración")
+
+    # ========== TAB TEMPORADAS ==========
+    with tab_temporadas:
+        st.markdown("### 📅 Calendario de Temporadas")
+        st.caption("Visualiza y gestiona las temporadas del año")
+
+        temporadas_cfg = obtener_temporadas()
+
+        # Calendario visual del año
+        meses = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
+
+        # Crear barra visual del año
+        if temporadas_cfg:
+            # Colores para temporadas
+            colores_temp = {
+                "BAJA": "#4CAF50",
+                "MEDIA": "#2196F3",
+                "ALTA": "#FF9800",
+                "NAVIDAD": "#E91E63"
+            }
+
+            # Crear calendario visual HTML
+            cal_html = "<div style='margin: 20px 0;'>"
+            cal_html += "<div style='display: flex; margin-bottom: 5px;'>"
+
+            for i, mes in enumerate(meses):
+                mes_num = i + 1
+                # Buscar qué temporada aplica a este mes (aproximado)
+                fecha_mes = f"{mes_num:02d}-15"
+                color_mes = "#e0e0e0"
+                temp_mes = ""
+
+                for t in temporadas_cfg:
+                    inicio = t['fecha_inicio']
+                    fin = t['fecha_fin']
+                    # Simplificado: comparar mes
+                    mes_inicio = int(inicio.split("-")[0])
+                    mes_fin = int(fin.split("-")[0])
+
+                    if mes_fin >= mes_inicio:
+                        if mes_inicio <= mes_num <= mes_fin:
+                            color_mes = colores_temp.get(t['codigo'], "#9E9E9E")
+                            temp_mes = t['nombre'][:3]
+                    else:  # Cruza año (ej: Navidad dic-ene)
+                        if mes_num >= mes_inicio or mes_num <= mes_fin:
+                            color_mes = colores_temp.get(t['codigo'], "#9E9E9E")
+                            temp_mes = t['nombre'][:3]
+
+                cal_html += f"""
+                <div style='flex: 1; text-align: center; padding: 8px 4px; background: {color_mes};
+                     margin: 0 1px; border-radius: 4px; color: white; font-size: 12px;'>
+                    <div style='font-weight: bold;'>{mes}</div>
+                </div>
+                """
+
+            cal_html += "</div></div>"
+            st.markdown(cal_html, unsafe_allow_html=True)
+
+            # Leyenda
+            leyenda_html = "<div style='display: flex; gap: 15px; margin-bottom: 20px; flex-wrap: wrap;'>"
+            for t in temporadas_cfg:
+                mult = float(t['multiplicador'])
+                color = colores_temp.get(t['codigo'], "#9E9E9E")
+                efecto = f"+{(mult-1)*100:.0f}%" if mult > 1 else f"{(mult-1)*100:.0f}%" if mult < 1 else "base"
+                leyenda_html += f"""
+                <div style='display: flex; align-items: center; gap: 5px;'>
+                    <div style='width: 16px; height: 16px; background: {color}; border-radius: 4px;'></div>
+                    <span style='font-size: 13px;'><b>{t['nombre']}</b> ({efecto})</span>
+                </div>
+                """
+            leyenda_html += "</div>"
+            st.markdown(leyenda_html, unsafe_allow_html=True)
+
+        st.markdown("---")
+
+        # Lista de temporadas con edición
+        st.markdown("#### Temporadas Configuradas")
+
+        if temporadas_cfg:
+            for t in temporadas_cfg:
+                mult = float(t['multiplicador'])
+                if mult < 1:
+                    icono = "🔽"
+                    color = "#4CAF50"
+                elif mult > 1:
+                    icono = "🔼"
+                    color = "#FF9800"
+                else:
+                    icono = "➖"
+                    color = "#9E9E9E"
+
+                col_t1, col_t2, col_t3, col_t4 = st.columns([3, 2, 1, 1])
+                with col_t1:
+                    st.markdown(f"**{icono} {t['nombre']}**")
+                with col_t2:
+                    st.caption(f"📅 {t['fecha_inicio']} → {t['fecha_fin']}")
+                with col_t3:
+                    st.markdown(f"<span style='color:{color}; font-weight:bold;'>x{mult:.2f}</span>", unsafe_allow_html=True)
+                with col_t4:
+                    if st.button("🗑️", key=f"del_temp_{t['codigo']}", help="Eliminar"):
+                        eliminar_temporada(t['codigo'])
+                        st.rerun()
+        else:
+            st.info("No hay temporadas definidas")
+
+        st.markdown("---")
+
+        # Añadir nueva temporada - más visual
+        st.markdown("#### ➕ Nueva Temporada")
+
+        col_new1, col_new2 = st.columns(2)
+
+        with col_new1:
+            new_temp_nom = st.text_input("Nombre", placeholder="Ej: Temporada Alta", key="new_temp_nom_v2")
+            new_temp_cod = st.text_input("Código", placeholder="Ej: ALTA", key="new_temp_cod_v2",
+                                         help="Se usará internamente. Usa mayúsculas sin espacios.")
+
+            # Slider visual para multiplicador
+            st.markdown("**Ajuste de precio:**")
+            new_temp_mult = st.slider("", min_value=0.50, max_value=2.00, value=1.00, step=0.05,
+                                      key="new_temp_mult_v2", label_visibility="collapsed")
+
+            # Preview visual
+            if new_temp_mult < 1:
+                st.success(f"🔽 **Descuento {(1-new_temp_mult)*100:.0f}%** - Precio final: {new_temp_mult*100:.0f}€ por cada 100€")
+            elif new_temp_mult > 1:
+                st.warning(f"🔼 **Recargo +{(new_temp_mult-1)*100:.0f}%** - Precio final: {new_temp_mult*100:.0f}€ por cada 100€")
+            else:
+                st.info("➖ Precio sin ajuste (x1.00)")
+
+        with col_new2:
+            st.markdown("**Período de la temporada:**")
+
+            año_actual = datetime.now().year
+
+            # Selector de rango de fechas
+            fecha_rango = st.date_input(
+                "Selecciona el rango",
+                value=(datetime(año_actual, 6, 15), datetime(año_actual, 9, 15)),
+                key="new_temp_rango_v2",
+                format="DD/MM/YYYY"
+            )
+
+            if isinstance(fecha_rango, tuple) and len(fecha_rango) == 2:
+                fecha_ini, fecha_fin = fecha_rango
+                dias = (fecha_fin - fecha_ini).days
+                st.caption(f"📅 {dias} días seleccionados")
+
+                fecha_ini_str = fecha_ini.strftime("%m-%d")
+                fecha_fin_str = fecha_fin.strftime("%m-%d")
+
+                st.markdown("---")
+                if st.button("💾 Guardar Temporada", type="primary", key="btn_save_temp_v2", use_container_width=True):
                     if new_temp_cod and new_temp_nom:
                         guardar_temporada(new_temp_cod.upper(), new_temp_nom, fecha_ini_str, fecha_fin_str, new_temp_mult)
                         st.success(f"✅ Temporada '{new_temp_nom}' guardada")
                         st.rerun()
                     else:
-                        st.error("Completa código y nombre")
+                        st.error("Completa nombre y código")
 
-            if not temporadas_cfg:
-                st.markdown("---")
-                if st.button("📥 Cargar Temporadas de Ejemplo", key="btn_temp_ejemplo", type="secondary"):
-                    guardar_temporada("BAJA", "Temporada Baja", "01-07", "03-14", 0.85)
-                    guardar_temporada("MEDIA", "Temporada Media", "03-15", "06-14", 1.0)
-                    guardar_temporada("ALTA", "Temporada Alta", "06-15", "09-15", 1.25)
-                    guardar_temporada("NAVIDAD", "Navidad", "12-15", "01-06", 1.15)
-                    st.success("✅ Temporadas de ejemplo cargadas")
-                    st.rerun()
-
-        # -------- TAB: TIPOS DE BUS --------
-        with cfg_tab2:
-            st.markdown("#### Tipos de Bus")
-            st.caption("Configura precios de venta y costes operativos (del Observatorio de Viajeros)")
-
-            tipos_bus_cfg = obtener_tipos_bus()
-
-            # Mostrar tabla de buses existentes
-            if tipos_bus_cfg:
-                import pandas as pd
-                df_buses = pd.DataFrame([
-                    {
-                        'Nombre': b['nombre'],
-                        'Plazas': b['capacidad'],
-                        'Precio €/h': f"{b.get('precio_base_hora', 0) or 0:.2f}",
-                        'Precio €/km': f"{b.get('precio_base_km', 0) or 0:.2f}",
-                        'Coste €/km': f"{b.get('coste_km', 0.85) or 0:.2f}",
-                        'Coste €/h': f"{b.get('coste_hora', 30.0) or 0:.2f}",
-                        'Código': b['codigo']
-                    }
-                    for b in sorted(tipos_bus_cfg, key=lambda x: x.get('capacidad', 0) or 0)
-                ])
-                st.dataframe(df_buses, use_container_width=True, hide_index=True)
-
-                # Selector para eliminar
-                bus_a_eliminar = st.selectbox(
-                    "Eliminar bus:",
-                    [""] + [f"{b['nombre']} ({b['codigo']})" for b in tipos_bus_cfg],
-                    key="sel_del_bus"
-                )
-                if bus_a_eliminar and st.button("🗑️ Confirmar eliminación", key="btn_del_bus"):
-                    codigo = bus_a_eliminar.split("(")[-1].replace(")", "")
-                    eliminar_tipo_bus(codigo)
-                    st.rerun()
-            else:
-                st.info("No hay tipos de bus definidos")
-
+        # Botón de temporadas de ejemplo
+        if not temporadas_cfg:
             st.markdown("---")
-            st.markdown("##### Añadir nuevo bus")
-
-            col_bus_1, col_bus_2 = st.columns(2)
-            with col_bus_1:
-                st.markdown("**Datos básicos:**")
-                new_bus_cod = st.text_input("Código", placeholder="AUTOCAR_55", key="new_bus_cod_cfg2")
-                new_bus_nom = st.text_input("Nombre", placeholder="Autocar 55 plazas", key="new_bus_nom_cfg2")
-                new_bus_cap = st.number_input("Plazas", min_value=1, value=55, key="new_bus_cap_cfg2")
-
-            with col_bus_2:
-                st.markdown("**Precios de venta:**")
-                new_bus_hora = st.number_input("Precio €/Hora", min_value=0.0, value=60.0, step=5.0, key="new_bus_hora_cfg2")
-                new_bus_km = st.number_input("Precio €/Km", min_value=0.0, value=1.30, step=0.05, key="new_bus_km_cfg2")
-
-            st.markdown("**Costes operativos** (Observatorio de Viajeros):")
-            col_coste1, col_coste2 = st.columns(2)
-            with col_coste1:
-                new_bus_coste_km = st.number_input("Coste €/Km", min_value=0.0, value=0.85, step=0.05, key="new_bus_coste_km",
-                                                    help="Combustible, mantenimiento, neumáticos")
-            with col_coste2:
-                new_bus_coste_hora = st.number_input("Coste €/Hora", min_value=0.0, value=30.0, step=1.0, key="new_bus_coste_hora",
-                                                      help="Conductor, seguros, amortización")
-
-            # Mostrar margen estimado
-            if new_bus_km > 0 and new_bus_hora > 0:
-                margen_km = ((new_bus_km - new_bus_coste_km) / new_bus_km) * 100
-                margen_hora = ((new_bus_hora - new_bus_coste_hora) / new_bus_hora) * 100
-                st.info(f"📊 Margen estimado: **{margen_km:.0f}%** por km | **{margen_hora:.0f}%** por hora")
-
-            if st.button("💾 Guardar Bus", key="btn_save_bus_cfg2", type="primary"):
-                if new_bus_cod and new_bus_nom:
-                    guardar_tipo_bus(new_bus_cod.upper(), new_bus_nom, new_bus_cap, new_bus_hora, new_bus_km,
-                                    new_bus_coste_km, new_bus_coste_hora)
-                    st.success(f"✅ Bus '{new_bus_nom}' guardado")
-                    st.rerun()
-                else:
-                    st.error("Completa código y nombre")
-
-        # -------- TAB: SEGMENTOS DE CLIENTE --------
-        with cfg_tab3:
-            st.markdown("#### Segmentos de Cliente")
-
-            tipos_cli_cfg = obtener_tipos_cliente()
-
-            if tipos_cli_cfg:
-                import pandas as pd
-                df_cli = pd.DataFrame([
-                    {
-                        'Nombre': c['nombre'],
-                        'Multiplicador': f"x{float(c['multiplicador']):.2f}",
-                        'Efecto': f"{(float(c['multiplicador'])-1)*100:+.0f}%" if float(c['multiplicador']) != 1 else "base",
-                        'Código': c['codigo']
-                    }
-                    for c in tipos_cli_cfg
-                ])
-                st.dataframe(df_cli, use_container_width=True, hide_index=True)
-
-                # Selector para eliminar
-                cli_a_eliminar = st.selectbox(
-                    "Eliminar segmento:",
-                    [""] + [f"{c['nombre']} ({c['codigo']})" for c in tipos_cli_cfg],
-                    key="sel_del_cli"
-                )
-                if cli_a_eliminar and st.button("🗑️ Confirmar eliminación", key="btn_del_cli"):
-                    codigo = cli_a_eliminar.split("(")[-1].replace(")", "")
-                    eliminar_tipo_cliente(codigo)
-                    st.rerun()
-            else:
-                st.info("No hay segmentos definidos")
-
-            st.markdown("---")
-            st.markdown("##### Añadir nuevo segmento")
-            col_nc1, col_nc2, col_nc3 = st.columns([2, 2, 1])
-            with col_nc1:
-                new_cli_cod = st.text_input("Código", placeholder="EMPRESA", key="new_cli_cod2")
-            with col_nc2:
-                new_cli_nom = st.text_input("Nombre", placeholder="Empresa", key="new_cli_nom2")
-            with col_nc3:
-                new_cli_mult = st.number_input("Multiplicador", min_value=0.5, max_value=2.0, value=1.0, step=0.05, key="new_cli_mult2")
-
-            if st.button("💾 Guardar Segmento", key="btn_save_cli2", type="primary"):
-                if new_cli_cod and new_cli_nom:
-                    guardar_tipo_cliente(new_cli_cod.upper(), new_cli_nom, new_cli_mult)
-                    st.success(f"✅ Segmento '{new_cli_nom}' guardado")
-                    st.rerun()
-                else:
-                    st.error("Completa código y nombre")
-
-        # -------- TAB: TARIFAS POR SERVICIO --------
-        with cfg_tab4:
-            st.markdown("#### Tarifas por Tipo de Servicio")
-
-            tarifas_srv_cfg = obtener_tarifas_servicio()
-
-            if tarifas_srv_cfg:
-                import pandas as pd
-                df_tar = pd.DataFrame([
-                    {
-                        'Servicio': t['tipo_servicio'],
-                        'Bus': t['tipo_bus'],
-                        'Base €': f"{t['precio_base']:.0f}",
-                        '€/Hora': f"{t['precio_hora']:.2f}",
-                        '€/Km': f"{t['precio_km']:.2f}",
-                        'ID': t['id']
-                    }
-                    for t in tarifas_srv_cfg
-                ])
-                st.dataframe(df_tar, use_container_width=True, hide_index=True)
-
-                # Selector para eliminar
-                tar_a_eliminar = st.selectbox(
-                    "Eliminar tarifa:",
-                    [""] + [f"{t['tipo_servicio']} + {t['tipo_bus']} (ID:{t['id']})" for t in tarifas_srv_cfg],
-                    key="sel_del_tar"
-                )
-                if tar_a_eliminar and st.button("🗑️ Confirmar eliminación", key="btn_del_tar"):
-                    id_tar = int(tar_a_eliminar.split("ID:")[-1].replace(")", ""))
-                    eliminar_tarifa_servicio(id_tar)
-                    st.rerun()
-            else:
-                st.info("No hay tarifas por servicio definidas")
-
-            st.markdown("---")
-            st.markdown("##### Añadir nueva tarifa")
-
-            tipos_srv = obtener_tipos_servicio_db()
-            tipos_bus_list = [b['codigo'] for b in obtener_tipos_bus()]
-
-            col_nts1, col_nts2, col_nts3, col_nts4, col_nts5 = st.columns([2, 2, 1, 1, 1])
-            with col_nts1:
-                new_ts_srv = st.selectbox("Servicio", list(tipos_srv.keys()) if tipos_srv else [""], key="new_ts_srv2")
-            with col_nts2:
-                new_ts_bus = st.selectbox("Bus", tipos_bus_list if tipos_bus_list else [""], key="new_ts_bus2")
-            with col_nts3:
-                new_ts_base = st.number_input("Base €", min_value=0.0, value=0.0, key="new_ts_base2")
-            with col_nts4:
-                new_ts_hora = st.number_input("€/Hora", min_value=0.0, value=50.0, key="new_ts_hora2")
-            with col_nts5:
-                new_ts_km = st.number_input("€/Km", min_value=0.0, value=1.20, key="new_ts_km2")
-
-            if st.button("💾 Guardar Tarifa", key="btn_save_ts2", type="primary"):
-                if new_ts_srv and new_ts_bus:
-                    guardar_tarifa_servicio(new_ts_srv, new_ts_bus, new_ts_base, new_ts_hora, new_ts_km)
-                    st.success(f"✅ Tarifa guardada")
-                    st.rerun()
-                else:
-                    st.error("Selecciona servicio y bus")
+            if st.button("📥 Cargar Temporadas de Ejemplo", key="btn_temp_ejemplo_v2", use_container_width=True):
+                guardar_temporada("BAJA", "Temporada Baja", "01-07", "03-14", 0.85)
+                guardar_temporada("MEDIA", "Temporada Media", "03-15", "06-14", 1.0)
+                guardar_temporada("ALTA", "Temporada Alta", "06-15", "09-15", 1.25)
+                guardar_temporada("NAVIDAD", "Navidad", "12-15", "01-06", 1.15)
+                st.success("✅ Temporadas de ejemplo cargadas")
+                st.rerun()
 
     # ========== TAB CLIENTES VIP ==========
     with tab_vip:
-        st.markdown("### Tarifas Personalizadas por Cliente")
-        st.caption("Define precios especiales para clientes individuales")
+        st.markdown("### ⭐ Tarifas Personalizadas por Cliente")
+        st.caption("Define precios especiales para clientes habituales")
 
         col_vip1, col_vip2 = st.columns([1, 1])
 
         with col_vip1:
-            st.markdown("#### Nueva Tarifa")
+            st.markdown("#### ➕ Nueva Tarifa VIP")
+
+            # Búsqueda de cliente con autocompletado
             clientes_vip = sorted(df['Cliente'].dropna().unique().tolist())
             tipos_bus_vip = obtener_tipos_bus()
-            tipos_bus_dict_vip = {"* (Todos)": "*"}
-            tipos_bus_dict_vip.update({b['nombre']: b['codigo'] for b in tipos_bus_vip})
+            tipos_bus_dict_vip = {"Todos los buses": "*"}
+            tipos_bus_dict_vip.update({f"{b['nombre']} ({b['capacidad']} plz)": b['codigo'] for b in tipos_bus_vip})
 
             vip_cliente = st.selectbox("Cliente", clientes_vip, key="vip_cliente")
             vip_bus = st.selectbox("Tipo de Bus", list(tipos_bus_dict_vip.keys()), key="vip_bus")
@@ -6911,85 +6952,318 @@ elif pagina == "Tarifas":
             else:
                 st.info("No hay tarifas personalizadas")
 
-    # ========== TAB INFORMES ==========
-    with tab_informes:
-        st.markdown("### Generar Informe PDF")
-        st.caption("Exporta las tarifas configuradas a PDF")
+            # Botón para eliminar tarifas VIP
+            if tarifas_vip:
+                st.markdown("---")
+                vip_a_eliminar = st.selectbox(
+                    "Eliminar tarifa VIP:",
+                    [""] + [f"{t['cliente'][:40]} - {t.get('tipo_bus', 'Todos')}" for t in tarifas_vip],
+                    key="sel_del_vip"
+                )
+                if vip_a_eliminar and st.button("🗑️ Eliminar", key="btn_del_vip"):
+                    # Buscar y eliminar
+                    for t in tarifas_vip:
+                        if f"{t['cliente'][:40]} - {t.get('tipo_bus', 'Todos')}" == vip_a_eliminar:
+                            eliminar_tarifa_cliente(t['id'])
+                            st.rerun()
 
-        col_inf1, col_inf2 = st.columns([1, 1])
+    # ========== TAB CONFIGURACIÓN ==========
+    with tab_config:
+        st.markdown("### ⚙️ Configuración de Tarifas")
 
-        with col_inf1:
-            st.markdown("#### Opciones")
-            inc_temp = st.checkbox("Incluir Temporadas", value=True, key="pdf_inc_temp")
-            inc_buses = st.checkbox("Incluir Tipos de Bus", value=True, key="pdf_inc_buses")
-            inc_cli = st.checkbox("Incluir Tipos de Cliente", value=True, key="pdf_inc_cli")
-            inc_srv = st.checkbox("Incluir Tarifas Servicio", value=True, key="pdf_inc_srv")
-            inc_vip = st.checkbox("Incluir Tarifas VIP", value=True, key="pdf_inc_vip")
+        cfg_sub1, cfg_sub2, cfg_sub3 = st.tabs(["🚌 Tipos de Bus", "👥 Segmentos Cliente", "📄 Informes"])
+
+        # -------- SUB-TAB: TIPOS DE BUS --------
+        with cfg_sub1:
+            st.markdown("#### Flota de Vehículos")
+            st.caption("Configura tus vehículos con costes del Observatorio de Viajeros (Ene 2025)")
+
+            tipos_bus_cfg = obtener_tipos_bus()
+
+            # Información del Observatorio
+            with st.expander("ℹ️ Referencia: Costes Observatorio Ene 2025", expanded=False):
+                st.markdown("""
+                **Costes medios según Observatorio de Costes del Transporte (Enero 2025):**
+
+                | Tipo Vehículo | Plazas | Coste €/km | Coste €/hora |
+                |---------------|--------|------------|--------------|
+                | Microbús | 10-25 | 1.02 | 30 |
+                | Autocar pequeño | 26-38 | 1.22 | 38 |
+                | Autocar mediano | 39-55 | 1.42 | 45 |
+                | Autocar grande | +55 | 1.58 | 52 |
+
+                *Fuente: [Ministerio de Transportes](https://www.transportes.gob.es)*
+                """)
+
+            # Tabla de buses existentes
+            if tipos_bus_cfg:
+                st.markdown("**Tu flota actual:**")
+
+                for b in sorted(tipos_bus_cfg, key=lambda x: x.get('capacidad', 0) or 0):
+                    coste_km = b.get('coste_km', 0) or 0
+                    coste_h = b.get('coste_hora', 0) or 0
+                    precio_km = b.get('precio_base_km', 0) or 0
+                    precio_h = b.get('precio_base_hora', 0) or 0
+
+                    # Calcular margen
+                    margen_km = ((precio_km - coste_km) / precio_km * 100) if precio_km > 0 else 0
+                    margen_h = ((precio_h - coste_h) / precio_h * 100) if precio_h > 0 else 0
+
+                    # Color según margen
+                    color_margen = "#4CAF50" if margen_km >= 25 else "#FF9800" if margen_km >= 15 else "#F44336"
+
+                    col_bus1, col_bus2, col_bus3 = st.columns([3, 3, 1])
+
+                    with col_bus1:
+                        st.markdown(f"**🚌 {b['nombre']}** ({b['capacidad']} plazas)")
+                        st.caption(f"Código: {b['codigo']}")
+
+                    with col_bus2:
+                        st.markdown(f"""
+                        <div style='font-size:13px;'>
+                            <b>Costes:</b> {coste_km:.2f}€/km | {coste_h:.0f}€/h<br>
+                            <b>Precios:</b> {precio_km:.2f}€/km | {precio_h:.0f}€/h<br>
+                            <span style='color:{color_margen};'>Margen: {margen_km:.0f}%</span>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                    with col_bus3:
+                        if st.button("🗑️", key=f"del_bus_{b['codigo']}", help="Eliminar"):
+                            eliminar_tipo_bus(b['codigo'])
+                            st.rerun()
+
+                    st.markdown("<hr style='margin:5px 0; border-color:#eee;'>", unsafe_allow_html=True)
+            else:
+                st.info("No hay tipos de bus definidos. Añade uno nuevo o importa desde tu flota.")
 
             st.markdown("---")
-            pdf_empresa = st.text_input("Empresa", value="Autocares David", key="pdf_empresa_new")
-            pdf_fecha = st.date_input("Fecha vigencia", value=datetime.now(), key="pdf_fecha_new")
 
-        with col_inf2:
-            st.markdown("#### Vista Previa")
-            temp_pdf = obtener_temporadas() if inc_temp else []
-            buses_pdf = obtener_tipos_bus() if inc_buses else []
-            cli_pdf = obtener_tipos_cliente() if inc_cli else []
-            srv_pdf = obtener_tarifas_servicio() if inc_srv else []
-            vip_pdf = obtener_tarifas_cliente() if inc_vip else []
+            # Importar desde Vehiculos.xlsx
+            st.markdown("#### 📥 Importar desde tu Flota")
+            st.caption("Carga automática desde Vehiculos.xlsx con costes del Observatorio")
 
-            st.markdown(f"""
-            <div style="background: #F5F5F5; padding: 15px; border-radius: 8px;">
-                <b>{pdf_empresa}</b><br>
-                Vigencia: {pdf_fecha}<br><br>
-                Temporadas: {len(temp_pdf)}<br>
-                Tipos Bus: {len(buses_pdf)}<br>
-                Segmentos: {len(cli_pdf)}<br>
-                Tarifas Servicio: {len(srv_pdf)}<br>
-                Tarifas VIP: {len(vip_pdf)}
-            </div>
-            """, unsafe_allow_html=True)
+            if st.button("🔄 Cargar Vehículos de Autopullman", type="primary", key="btn_import_vehiculos"):
+                try:
+                    import pandas as pd
+                    ruta_vehiculos = '/Users/cesarmartin/Library/CloudStorage/OneDrive-AutocaresDavid/supercarpeta/Vehiculos.xlsx'
+                    df_veh = pd.read_excel(ruta_vehiculos)
 
-        if st.button("Generar PDF", type="primary", key="btn_gen_pdf_new", use_container_width=True):
-            pdf = FPDF()
-            pdf.set_auto_page_break(auto=True, margin=15)
+                    # Agrupar por tipo de vehículo
+                    tipos_veh = df_veh.groupby('Vehículo tipo').agg({
+                        'Plazas': 'mean'
+                    }).reset_index()
 
-            # Portada
-            pdf.add_page()
-            pdf.set_font("Helvetica", "B", 24)
-            pdf.cell(0, 60, "", ln=True)
-            pdf.cell(0, 15, pdf_empresa, ln=True, align="C")
-            pdf.set_font("Helvetica", "", 18)
-            pdf.cell(0, 15, "TARIFAS DE SERVICIOS", ln=True, align="C")
-            pdf.set_font("Helvetica", "", 14)
-            pdf.cell(0, 10, f"Vigencia: {pdf_fecha.strftime('%d/%m/%Y')}", ln=True, align="C")
+                    # Costes del Observatorio Ene 2025 según plazas
+                    costes_obs = {
+                        'MICROBUS': {'coste_km': 1.02, 'coste_h': 30, 'precio_km': 1.35, 'precio_h': 45},
+                        'MIDIBUS': {'coste_km': 1.22, 'coste_h': 38, 'precio_km': 1.55, 'precio_h': 55},
+                        'AUTOCAR': {'coste_km': 1.42, 'coste_h': 45, 'precio_km': 1.75, 'precio_h': 65},
+                        'GRAN CAPACIDAD': {'coste_km': 1.58, 'coste_h': 52, 'precio_km': 1.95, 'precio_h': 75}
+                    }
 
-            # Tipos de Bus
-            if inc_buses and buses_pdf:
+                    guardados = 0
+                    for _, row in tipos_veh.iterrows():
+                        tipo = row['Vehículo tipo']
+                        plazas = int(row['Plazas'])
+
+                        costes = costes_obs.get(tipo, costes_obs['AUTOCAR'])
+
+                        codigo = tipo.replace(' ', '_').upper()
+                        nombre = f"{tipo.title()} ({plazas} plz)"
+
+                        guardar_tipo_bus(
+                            codigo, nombre, plazas,
+                            costes['precio_h'], costes['precio_km'],
+                            costes['coste_km'], costes['coste_h']
+                        )
+                        guardados += 1
+
+                    st.success(f"✅ {guardados} tipos de vehículo importados con costes del Observatorio")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error: {e}")
+
+            st.markdown("---")
+
+            # Añadir nuevo bus manualmente
+            st.markdown("#### ➕ Añadir Bus Manualmente")
+
+            col_new1, col_new2 = st.columns(2)
+
+            with col_new1:
+                new_bus_nom = st.text_input("Nombre", placeholder="Ej: Autocar 55 plazas", key="new_bus_nom_cfg")
+                new_bus_cod = st.text_input("Código", placeholder="Ej: AUTOCAR_55", key="new_bus_cod_cfg")
+                new_bus_cap = st.number_input("Plazas", min_value=1, value=55, key="new_bus_cap_cfg")
+
+                # Preseleccionar costes según plazas
+                if new_bus_cap <= 25:
+                    default_coste_km, default_coste_h = 1.02, 30.0
+                elif new_bus_cap <= 38:
+                    default_coste_km, default_coste_h = 1.22, 38.0
+                elif new_bus_cap <= 55:
+                    default_coste_km, default_coste_h = 1.42, 45.0
+                else:
+                    default_coste_km, default_coste_h = 1.58, 52.0
+
+            with col_new2:
+                st.markdown("**Costes operativos** (Observatorio)")
+                new_coste_km = st.number_input("Coste €/Km", min_value=0.0, value=default_coste_km, step=0.05, key="new_coste_km_cfg")
+                new_coste_h = st.number_input("Coste €/Hora", min_value=0.0, value=default_coste_h, step=1.0, key="new_coste_h_cfg")
+
+                st.markdown("**Precios de venta** (con rentabilidad)")
+                # Calcular precio sugerido con 25% de margen
+                precio_km_sugerido = new_coste_km / 0.75
+                precio_h_sugerido = new_coste_h / 0.75
+
+                new_precio_km = st.number_input("Precio €/Km", min_value=0.0, value=round(precio_km_sugerido, 2), step=0.05, key="new_precio_km_cfg")
+                new_precio_h = st.number_input("Precio €/Hora", min_value=0.0, value=round(precio_h_sugerido, 0), step=5.0, key="new_precio_h_cfg")
+
+            # Calculadora de margen
+            if new_precio_km > 0 and new_precio_h > 0:
+                margen_km_calc = ((new_precio_km - new_coste_km) / new_precio_km) * 100
+                margen_h_calc = ((new_precio_h - new_coste_h) / new_precio_h) * 100
+
+                if margen_km_calc >= 25:
+                    st.success(f"✅ Margen: **{margen_km_calc:.0f}%** por km | **{margen_h_calc:.0f}%** por hora")
+                elif margen_km_calc >= 15:
+                    st.warning(f"⚠️ Margen: **{margen_km_calc:.0f}%** por km | **{margen_h_calc:.0f}%** por hora (bajo)")
+                else:
+                    st.error(f"❌ Margen: **{margen_km_calc:.0f}%** por km | **{margen_h_calc:.0f}%** por hora (muy bajo)")
+
+            if st.button("💾 Guardar Bus", type="primary", key="btn_save_bus_cfg"):
+                if new_bus_cod and new_bus_nom:
+                    guardar_tipo_bus(new_bus_cod.upper(), new_bus_nom, new_bus_cap,
+                                    new_precio_h, new_precio_km, new_coste_km, new_coste_h)
+                    st.success(f"✅ Bus '{new_bus_nom}' guardado")
+                    st.rerun()
+                else:
+                    st.error("Completa código y nombre")
+
+        # -------- SUB-TAB: SEGMENTOS CLIENTE --------
+        with cfg_sub2:
+            st.markdown("#### Segmentos de Cliente")
+            st.caption("Define multiplicadores de precio según el tipo de cliente")
+
+            tipos_cli_cfg = obtener_tipos_cliente()
+
+            if tipos_cli_cfg:
+                for c in tipos_cli_cfg:
+                    mult = float(c['multiplicador'])
+                    efecto = f"+{(mult-1)*100:.0f}%" if mult > 1 else f"{(mult-1)*100:.0f}%" if mult < 1 else "base"
+                    color = "#4CAF50" if mult < 1 else "#FF9800" if mult > 1 else "#9E9E9E"
+
+                    col_c1, col_c2, col_c3 = st.columns([3, 2, 1])
+                    with col_c1:
+                        st.markdown(f"**{c['nombre']}**")
+                    with col_c2:
+                        st.markdown(f"<span style='color:{color};'>x{mult:.2f} ({efecto})</span>", unsafe_allow_html=True)
+                    with col_c3:
+                        if st.button("🗑️", key=f"del_cli_{c['codigo']}", help="Eliminar"):
+                            eliminar_tipo_cliente(c['codigo'])
+                            st.rerun()
+            else:
+                st.info("No hay segmentos definidos")
+
+            st.markdown("---")
+            st.markdown("##### Añadir Segmento")
+
+            col_seg1, col_seg2, col_seg3 = st.columns([2, 2, 1])
+            with col_seg1:
+                new_seg_nom = st.text_input("Nombre", placeholder="Ej: Empresa", key="new_seg_nom")
+            with col_seg2:
+                new_seg_cod = st.text_input("Código", placeholder="Ej: EMPRESA", key="new_seg_cod")
+            with col_seg3:
+                new_seg_mult = st.number_input("Mult.", min_value=0.5, max_value=2.0, value=1.0, step=0.05, key="new_seg_mult")
+
+            if st.button("💾 Guardar Segmento", type="primary", key="btn_save_seg"):
+                if new_seg_cod and new_seg_nom:
+                    guardar_tipo_cliente(new_seg_cod.upper(), new_seg_nom, new_seg_mult)
+                    st.success(f"✅ Segmento '{new_seg_nom}' guardado")
+                    st.rerun()
+                else:
+                    st.error("Completa código y nombre")
+
+        # -------- SUB-TAB: INFORMES --------
+        with cfg_sub3:
+            st.markdown("### Generar Informe PDF")
+            st.caption("Exporta las tarifas configuradas a PDF")
+
+            col_inf1, col_inf2 = st.columns([1, 1])
+
+            with col_inf1:
+                st.markdown("#### Opciones")
+                inc_temp = st.checkbox("Incluir Temporadas", value=True, key="pdf_inc_temp")
+                inc_buses = st.checkbox("Incluir Tipos de Bus", value=True, key="pdf_inc_buses")
+                inc_cli = st.checkbox("Incluir Tipos de Cliente", value=True, key="pdf_inc_cli")
+                inc_srv = st.checkbox("Incluir Tarifas Servicio", value=True, key="pdf_inc_srv")
+                inc_vip = st.checkbox("Incluir Tarifas VIP", value=True, key="pdf_inc_vip")
+
+                st.markdown("---")
+                pdf_empresa = st.text_input("Empresa", value="Autocares David", key="pdf_empresa_new")
+                pdf_fecha = st.date_input("Fecha vigencia", value=datetime.now(), key="pdf_fecha_new")
+
+            with col_inf2:
+                st.markdown("#### Vista Previa")
+                temp_pdf = obtener_temporadas() if inc_temp else []
+                buses_pdf = obtener_tipos_bus() if inc_buses else []
+                cli_pdf = obtener_tipos_cliente() if inc_cli else []
+                srv_pdf = obtener_tarifas_servicio() if inc_srv else []
+                vip_pdf = obtener_tarifas_cliente() if inc_vip else []
+
+                st.markdown(f"""
+                <div style="background: #F5F5F5; padding: 15px; border-radius: 8px;">
+                    <b>{pdf_empresa}</b><br>
+                    Vigencia: {pdf_fecha}<br><br>
+                    Temporadas: {len(temp_pdf)}<br>
+                    Tipos Bus: {len(buses_pdf)}<br>
+                    Segmentos: {len(cli_pdf)}<br>
+                    Tarifas Servicio: {len(srv_pdf)}<br>
+                    Tarifas VIP: {len(vip_pdf)}
+                </div>
+                """, unsafe_allow_html=True)
+
+            if st.button("Generar PDF", type="primary", key="btn_gen_pdf_new", use_container_width=True):
+                pdf = FPDF()
+                pdf.set_auto_page_break(auto=True, margin=15)
+
+                # Portada
                 pdf.add_page()
-                pdf.set_font("Helvetica", "B", 16)
-                pdf.cell(0, 12, "TIPOS DE VEHICULO", ln=True)
-                pdf.set_font("Helvetica", "", 10)
-                for b in sorted(buses_pdf, key=lambda x: x['capacidad']):
-                    pdf.cell(0, 7, f"{b['nombre']} ({b['capacidad']} plz): {b['precio_base_hora']:.2f} EUR/h, {b['precio_base_km']:.2f} EUR/km", ln=True)
+                pdf.set_font("Helvetica", "B", 24)
+                pdf.cell(0, 60, "", ln=True)
+                pdf.cell(0, 15, pdf_empresa, ln=True, align="C")
+                pdf.set_font("Helvetica", "", 18)
+                pdf.cell(0, 15, "TARIFAS DE SERVICIOS", ln=True, align="C")
+                pdf.set_font("Helvetica", "", 14)
+                pdf.cell(0, 10, f"Vigencia: {pdf_fecha.strftime('%d/%m/%Y')}", ln=True, align="C")
 
-            # Temporadas
-            if inc_temp and temp_pdf:
-                pdf.add_page()
-                pdf.set_font("Helvetica", "B", 16)
-                pdf.cell(0, 12, "TEMPORADAS", ln=True)
-                pdf.set_font("Helvetica", "", 10)
-                for t in temp_pdf:
-                    pdf.cell(0, 7, f"{t['nombre']}: {t['fecha_inicio']} a {t['fecha_fin']} (x{t['multiplicador']:.2f})", ln=True)
+                # Tipos de Bus
+                if inc_buses and buses_pdf:
+                    pdf.add_page()
+                    pdf.set_font("Helvetica", "B", 16)
+                    pdf.cell(0, 12, "TIPOS DE VEHICULO", ln=True)
+                    pdf.set_font("Helvetica", "", 10)
+                    for b in sorted(buses_pdf, key=lambda x: x.get('capacidad', 0) or 0):
+                        ph = b.get('precio_base_hora', 0) or 0
+                        pk = b.get('precio_base_km', 0) or 0
+                        pdf.cell(0, 7, f"{b['nombre']} ({b['capacidad']} plz): {ph:.2f} EUR/h, {pk:.2f} EUR/km", ln=True)
 
-            pdf_output = pdf.output()
-            st.success("PDF generado!")
-            st.download_button(
-                "Descargar PDF",
-                data=pdf_output,
-                file_name=f"tarifas_{pdf_empresa.replace(' ', '_')}.pdf",
-                mime="application/pdf"
-            )
+                # Temporadas
+                if inc_temp and temp_pdf:
+                    pdf.add_page()
+                    pdf.set_font("Helvetica", "B", 16)
+                    pdf.cell(0, 12, "TEMPORADAS", ln=True)
+                    pdf.set_font("Helvetica", "", 10)
+                    for t in temp_pdf:
+                        pdf.cell(0, 7, f"{t['nombre']}: {t['fecha_inicio']} a {t['fecha_fin']} (x{t['multiplicador']:.2f})", ln=True)
+
+                pdf_output = pdf.output()
+                st.success("PDF generado!")
+                st.download_button(
+                    "Descargar PDF",
+                    data=pdf_output,
+                    file_name=f"tarifas_{pdf_empresa.replace(' ', '_')}.pdf",
+                    mime="application/pdf"
+                )
 
 
 # ============================================
