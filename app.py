@@ -973,7 +973,7 @@ TODAS_LAS_PAGINAS = [
     # Comercial
     "Clientes", "Campanas Segmentadas", "Incentivos",
     # Análisis
-    "Dashboard", "Analisis Conversion", "Tiempo Anticipacion", "Analisis Mercado",
+    "Dashboard", "Analisis Conversion", "Tiempo Anticipacion", "Analisis Mercado", "Flotas Competencia",
     # Configuración
     "Tarifas", "Configuracion"
 ]
@@ -1038,14 +1038,22 @@ if pagina == "Acciones":
 
     hoy = datetime.now()
 
-    # Presupuestos enviados pendientes de respuesta
+    # Presupuestos enviados pendientes de respuesta (agrupados por Cod. Presupuesto)
     df_enviados = df[df['Estado presupuesto'] == 'E'].copy()
     df_enviados['Fecha alta'] = pd.to_datetime(df_enviados['Fecha alta'], errors='coerce')
-    df_enviados['Dias_Sin_Respuesta'] = (hoy - df_enviados['Fecha alta']).dt.days
+
+    # Agrupar por Cod. Presupuesto para tratar cada presupuesto como unidad
+    df_enviados_agrup = df_enviados.groupby('Cod. Presupuesto').agg({
+        'Cliente': 'first',
+        'Total importe': 'sum',
+        'Fecha alta': 'first',
+        'Atendido por': 'first'
+    }).reset_index()
+    df_enviados_agrup['Dias_Sin_Respuesta'] = (hoy - df_enviados_agrup['Fecha alta']).dt.days
 
     # Clasificar por urgencia
-    urgentes = df_enviados[df_enviados['Dias_Sin_Respuesta'] >= DIAS_URGENTE].sort_values('Dias_Sin_Respuesta', ascending=False)
-    seguimiento = df_enviados[(df_enviados['Dias_Sin_Respuesta'] >= DIAS_SEGUIMIENTO) & (df_enviados['Dias_Sin_Respuesta'] < DIAS_URGENTE)].sort_values('Dias_Sin_Respuesta', ascending=False)
+    urgentes = df_enviados_agrup[df_enviados_agrup['Dias_Sin_Respuesta'] >= DIAS_URGENTE].sort_values('Dias_Sin_Respuesta', ascending=False)
+    seguimiento = df_enviados_agrup[(df_enviados_agrup['Dias_Sin_Respuesta'] >= DIAS_SEGUIMIENTO) & (df_enviados_agrup['Dias_Sin_Respuesta'] < DIAS_URGENTE)].sort_values('Dias_Sin_Respuesta', ascending=False)
 
     # Clientes inactivos que antes compraban
     df_aceptados = df[df['Estado presupuesto'].isin(['A', 'AP'])].copy()
@@ -1055,7 +1063,7 @@ if pagina == "Acciones":
         ultima_compra = df_aceptados.groupby('Cliente').agg({
             'Fecha alta': 'max',
             'Total importe': 'sum',
-            'Cod. Presupuesto': 'count'
+            'Cod. Presupuesto': 'nunique'  # Contar presupuestos únicos, no líneas
         }).reset_index()
         ultima_compra.columns = ['Cliente', 'Ultima_Compra', 'Total_Historico', 'Num_Servicios']
         ultima_compra['Dias_Inactivo'] = (hoy - ultima_compra['Ultima_Compra']).dt.days
@@ -1067,7 +1075,7 @@ if pagina == "Acciones":
     df_reciente = df[df['Fecha alta'] >= (hoy - timedelta(days=30))].copy()
     if not df_reciente.empty:
         actividad_reciente = df_reciente.groupby('Cliente').agg({
-            'Cod. Presupuesto': 'count',
+            'Cod. Presupuesto': 'nunique',  # Contar presupuestos únicos, no líneas
             'Total importe': 'sum'
         }).reset_index()
         actividad_reciente.columns = ['Cliente', 'Presupuestos_Mes', 'Importe_Total']
@@ -1920,7 +1928,7 @@ elif pagina == "Analisis Mercado":
     # Limpiar placeholder
     loading_placeholder.empty()
 
-    tab0, tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Dashboard", "🏢 Competidores", "💰 Cotizaciones", "🚌 Flotas", "📈 Análisis", "⚠️ Alertas"])
+    tab0, tab1, tab2, tab3, tab4 = st.tabs(["📊 Dashboard", "🏢 Competidores", "💰 Cotizaciones", "📈 Análisis", "⚠️ Alertas"])
 
     # TAB 0: DASHBOARD EJECUTIVO
     with tab0:
@@ -2013,19 +2021,19 @@ elif pagina == "Analisis Mercado":
         if stats_flota:
             stats_con_datos = [s for s in stats_flota if s['total_vehiculos'] and s['total_vehiculos'] > 0]
             if stats_con_datos:
-                # Líder del mercado
+                # Líder del mercado (solo activos)
                 lider = max(stats_con_datos, key=lambda x: x['total_vehiculos'])
                 with col_resumen1:
                     st.info(f"**🏆 Líder del mercado:** {lider['competidor']} ({lider['total_vehiculos']} vehículos)")
 
-                # Flota más joven
+                # Flota más joven (solo activos)
                 stats_con_edad = [s for s in stats_con_datos if s['edad_media'] and s['edad_media'] > 0]
                 if stats_con_edad:
                     mas_joven = min(stats_con_edad, key=lambda x: x['edad_media'])
                     with col_resumen2:
                         st.success(f"**🌟 Flota más joven:** {mas_joven['competidor']} ({mas_joven['edad_media']:.1f} años)")
 
-                # Mayor capacidad
+                # Mayor capacidad (solo activos)
                 max_capacidad = max(stats_con_datos, key=lambda x: x['capacidad_total'] or 0)
                 with col_resumen3:
                     st.warning(f"**🚌 Mayor capacidad:** {max_capacidad['competidor']} ({max_capacidad['capacidad_total']:,} plazas)")
@@ -2395,241 +2403,8 @@ elif pagina == "Analisis Mercado":
                 else:
                     st.info("No hay cotizaciones registradas. Añade la primera usando el formulario.")
 
-    # TAB 3: FLOTAS DE COMPETIDORES
+    # TAB 3: ANÁLISIS COMPARATIVO
     with tab3:
-        st.subheader("Gestión de Flotas de Competidores")
-
-        competidores = competidores_data
-
-        if not competidores:
-            st.warning("Primero debes añadir competidores en la pestaña 'Competidores'")
-        else:
-            col_add, col_stats = st.columns([1, 2])
-
-            with col_add:
-                st.markdown("**Añadir Vehículo**")
-                with st.form("form_vehiculo_comp"):
-                    comp_veh = st.selectbox("Competidor*", [c['nombre'] for c in competidores], key="comp_veh_select")
-                    matricula_veh = st.text_input("Matrícula", placeholder="Ej: 1234-ABC")
-
-                    col_v1, col_v2 = st.columns(2)
-                    with col_v1:
-                        marca_veh = st.text_input("Marca", placeholder="Ej: Irizar, Scania")
-                        plazas_veh = st.number_input("Plazas", min_value=1, max_value=100, value=55)
-                        ano_veh = st.number_input("Año matriculación", min_value=1990, max_value=2026, value=2020)
-                    with col_v2:
-                        modelo_veh = st.text_input("Modelo", placeholder="Ej: i6S, Century")
-                        distintivo_veh = st.selectbox("Distintivo ambiental", ["", "0", "ECO", "C", "B", "Sin distintivo"])
-                        tipo_veh_flota = st.selectbox("Tipo", ["AUTOBUS", "MINIBUS", "MICROBUS", "TURISMO"])
-
-                    col_check1, col_check2 = st.columns(2)
-                    with col_check1:
-                        pmr_veh = st.checkbox("PMR (accesible)")
-                        wc_veh = st.checkbox("WC")
-                    with col_check2:
-                        wifi_veh = st.checkbox("WiFi")
-                        escolar_veh = st.checkbox("Escolar")
-
-                    obs_veh = st.text_area("Observaciones", height=60)
-
-                    if st.form_submit_button("Añadir Vehículo", type="primary"):
-                        if comp_veh:
-                            comp_id_veh = next((c['id'] for c in competidores if c['nombre'] == comp_veh), None)
-                            if comp_id_veh:
-                                guardar_vehiculo_competencia(
-                                    competidor_id=comp_id_veh,
-                                    matricula=matricula_veh if matricula_veh else None,
-                                    tipo_vehiculo=tipo_veh_flota,
-                                    marca=marca_veh,
-                                    modelo=modelo_veh,
-                                    plazas=plazas_veh,
-                                    ano_matriculacion=ano_veh,
-                                    distintivo_ambiental=distintivo_veh,
-                                    pmr=pmr_veh,
-                                    wc=wc_veh,
-                                    wifi=wifi_veh,
-                                    escolar=escolar_veh,
-                                    observaciones=obs_veh
-                                )
-                                st.success(f"Vehículo añadido a {comp_veh}")
-                                st.rerun()
-                        else:
-                            st.error("Selecciona un competidor")
-
-            with col_stats:
-                st.markdown("**Comparativa de Flotas**")
-
-                comparativa = obtener_comparativa_flotas()
-
-                if comparativa['resumen']:
-                    res = comparativa['resumen']
-                    col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-                    col_m1.metric("Total Competidores", res['total_competidores'])
-                    col_m2.metric("Vehículos Mercado", res['total_vehiculos_mercado'])
-                    col_m3.metric("Capacidad Total", f"{res['capacidad_total_mercado']:,} plazas")
-                    col_m4.metric("Líder Flota", res['lider_flota'] or "-")
-
-                if comparativa['competidores']:
-                    df_flotas = pd.DataFrame(comparativa['competidores'])
-                    df_flotas_show = df_flotas[['competidor', 'total_vehiculos', 'buses_grandes', 'buses_medianos',
-                                                 'microbuses', 'edad_media', 'capacidad_total', 'con_pmr']].copy()
-                    df_flotas_show.columns = ['Competidor', 'Total', 'Grandes (50+)', 'Medianos', 'Micro',
-                                              'Edad Media', 'Capacidad', 'PMR']
-                    st.dataframe(df_flotas_show, use_container_width=True, hide_index=True)
-
-                    # Gráfico de barras
-                    if len(df_flotas) > 0:
-                        fig_flotas = px.bar(
-                            df_flotas,
-                            x='competidor',
-                            y='total_vehiculos',
-                            color='edad_media',
-                            title='Tamaño de Flota por Competidor',
-                            labels={'total_vehiculos': 'Vehículos', 'competidor': 'Competidor', 'edad_media': 'Edad Media'},
-                            color_continuous_scale='RdYlGn_r'
-                        )
-                        st.plotly_chart(fig_flotas, use_container_width=True)
-
-            st.divider()
-
-            # ANÁLISIS AVANZADO DE FLOTAS
-            st.markdown("### 📊 Análisis Avanzado de Flotas")
-
-            comparativa = obtener_comparativa_flotas()
-            if comparativa['competidores']:
-                df_anal = pd.DataFrame(comparativa['competidores'])
-                df_anal_filtrado = df_anal[df_anal['total_vehiculos'] > 0].copy()
-
-                if len(df_anal_filtrado) > 0:
-                    col_graf1, col_graf2 = st.columns(2)
-
-                    with col_graf1:
-                        st.markdown("**Edad vs Capacidad (tamaño = nº vehículos)**")
-                        fig_scatter = px.scatter(
-                            df_anal_filtrado,
-                            x='edad_media',
-                            y='capacidad_total',
-                            size='total_vehiculos',
-                            color='competidor',
-                            hover_data=['buses_grandes', 'buses_medianos', 'microbuses'],
-                            labels={'edad_media': 'Edad Media (años)', 'capacidad_total': 'Capacidad Total (plazas)'},
-                            size_max=50
-                        )
-                        fig_scatter.update_layout(height=400, showlegend=False)
-                        st.plotly_chart(fig_scatter, use_container_width=True)
-
-                    with col_graf2:
-                        st.markdown("**Composición de Flotas**")
-                        df_stacked = df_anal_filtrado[['competidor', 'buses_grandes', 'buses_medianos', 'microbuses']].copy()
-                        df_stacked = df_stacked.melt(id_vars='competidor', var_name='Tipo', value_name='Cantidad')
-                        df_stacked['Tipo'] = df_stacked['Tipo'].replace({
-                            'buses_grandes': 'Grandes (50+)',
-                            'buses_medianos': 'Medianos (30-49)',
-                            'microbuses': 'Micros (<30)'
-                        })
-                        fig_stacked = px.bar(
-                            df_stacked,
-                            x='competidor',
-                            y='Cantidad',
-                            color='Tipo',
-                            barmode='stack',
-                            color_discrete_map={'Grandes (50+)': '#1f77b4', 'Medianos (30-49)': '#ff7f0e', 'Micros (<30)': '#2ca02c'}
-                        )
-                        fig_stacked.update_layout(height=400, xaxis_tickangle=-45)
-                        st.plotly_chart(fig_stacked, use_container_width=True)
-
-                    # Métricas de calidad de flota
-                    st.markdown("**Indicadores de Calidad de Flota**")
-                    df_calidad = df_anal_filtrado.copy()
-                    df_calidad['% PMR'] = (df_calidad['con_pmr'] / df_calidad['total_vehiculos'] * 100).round(1)
-                    df_calidad['% Escolar'] = (df_calidad['escolares'] / df_calidad['total_vehiculos'] * 100).round(1)
-                    df_calidad['% WiFi'] = (df_calidad['con_wifi'] / df_calidad['total_vehiculos'] * 100).round(1)
-                    # Índice de modernidad: 100 - (edad_media * 5), limitado entre 0-100
-                    df_calidad['Modernidad'] = df_calidad['edad_media'].apply(lambda x: max(0, min(100, 100 - (x * 5))) if x else 0).round(0)
-
-                    df_calidad_show = df_calidad[['competidor', 'total_vehiculos', 'edad_media', '% PMR', '% Escolar', '% WiFi', 'Modernidad']].copy()
-                    df_calidad_show.columns = ['Competidor', 'Vehículos', 'Edad Media', '% PMR', '% Escolar', '% WiFi', 'Índice Modernidad']
-                    st.dataframe(df_calidad_show, use_container_width=True, hide_index=True)
-
-            st.divider()
-
-            # Lista de vehículos con FILTROS AVANZADOS
-            st.markdown("### 🚌 Vehículos Registrados")
-
-            col_f1, col_f2, col_f3, col_f4 = st.columns(4)
-            with col_f1:
-                filtro_comp_veh = st.selectbox("Competidor", ["Todos"] + [c['nombre'] for c in competidores], key="filtro_veh")
-            with col_f2:
-                filtro_tipo_veh = st.selectbox("Tipo vehículo", ["Todos", "AUTOBUS", "MINIBUS", "MICROBUS", "TURISMO"], key="filtro_tipo_veh")
-            with col_f3:
-                filtro_distintivo = st.selectbox("Distintivo", ["Todos", "0", "ECO", "C", "B", "Sin distintivo"], key="filtro_distintivo")
-            with col_f4:
-                filtro_antiguedad = st.selectbox("Antigüedad", ["Todos", "< 5 años", "5-10 años", "> 10 años"], key="filtro_antiguedad")
-
-            comp_id_filtro_veh = None
-            if filtro_comp_veh != "Todos":
-                comp_id_filtro_veh = next((c['id'] for c in competidores if c['nombre'] == filtro_comp_veh), None)
-
-            vehiculos = obtener_vehiculos_competencia(competidor_id=comp_id_filtro_veh)
-
-            if vehiculos:
-                df_veh = pd.DataFrame(vehiculos)
-
-                # Aplicar filtros adicionales
-                if filtro_tipo_veh != "Todos":
-                    df_veh = df_veh[df_veh['tipo_vehiculo'] == filtro_tipo_veh]
-                if filtro_distintivo != "Todos":
-                    df_veh = df_veh[df_veh['distintivo_ambiental'] == filtro_distintivo]
-                if filtro_antiguedad != "Todos":
-                    if filtro_antiguedad == "< 5 años":
-                        df_veh = df_veh[df_veh['edad'] < 5]
-                    elif filtro_antiguedad == "5-10 años":
-                        df_veh = df_veh[(df_veh['edad'] >= 5) & (df_veh['edad'] <= 10)]
-                    else:  # > 10 años
-                        df_veh = df_veh[df_veh['edad'] > 10]
-
-                st.caption(f"Mostrando {len(df_veh)} vehículos")
-
-                if len(df_veh) > 0:
-                    # Histograma de antigüedad
-                    col_hist, col_table = st.columns([1, 2])
-                    with col_hist:
-                        st.markdown("**Distribución por Antigüedad**")
-                        fig_hist = px.histogram(
-                            df_veh,
-                            x='edad',
-                            nbins=10,
-                            labels={'edad': 'Edad (años)', 'count': 'Vehículos'},
-                            color_discrete_sequence=['#3366cc']
-                        )
-                        fig_hist.update_layout(height=300, margin=dict(t=20, b=20))
-                        st.plotly_chart(fig_hist, use_container_width=True)
-
-                    with col_table:
-                        df_veh_show = df_veh[['competidor_nombre', 'matricula', 'marca', 'modelo', 'plazas',
-                                              'ano_matriculacion', 'edad', 'distintivo_ambiental']].copy()
-                        df_veh_show.columns = ['Competidor', 'Matrícula', 'Marca', 'Modelo', 'Plazas', 'Año', 'Edad', 'Distintivo']
-                        df_veh_show['Matrícula'] = df_veh_show['Matrícula'].fillna('-')
-                        st.dataframe(df_veh_show, use_container_width=True, hide_index=True, height=300)
-                else:
-                    st.info("No hay vehículos que coincidan con los filtros")
-
-                # Botón para eliminar (usar datos filtrados)
-                if len(df_veh) > 0 and st.checkbox("Mostrar opciones de eliminación", key="show_del_veh"):
-                    veh_list = df_veh.to_dict('records')
-                    veh_eliminar = st.selectbox("Seleccionar vehículo a eliminar",
-                                                 [f"{v['competidor_nombre']} - {v['matricula'] or 'Sin matrícula'} ({v['marca']} {v['modelo']})" for v in veh_list],
-                                                 key="veh_del_select")
-                    if st.button("Eliminar vehículo", type="secondary"):
-                        idx = [f"{v['competidor_nombre']} - {v['matricula'] or 'Sin matrícula'} ({v['marca']} {v['modelo']})" for v in veh_list].index(veh_eliminar)
-                        eliminar_vehiculo_competencia(veh_list[idx]['id'])
-                        st.success("Vehículo eliminado")
-                        st.rerun()
-            else:
-                st.info("No hay vehículos registrados")
-
-    # TAB 4: ANÁLISIS COMPARATIVO
-    with tab4:
         st.subheader("Análisis Comparativo de Precios")
 
         estadisticas = obtener_estadisticas_mercado()
@@ -2796,8 +2571,8 @@ elif pagina == "Analisis Mercado":
         else:
             st.info("No hay datos de mercado. Registra cotizaciones de la competencia para ver el análisis.")
 
-    # TAB 5: ALERTAS
-    with tab5:
+    # TAB 4: ALERTAS
+    with tab4:
         st.subheader("Panel de Alertas")
 
         umbral = st.slider("Umbral de diferencia (%)", min_value=5, max_value=50, value=15)
@@ -2900,6 +2675,328 @@ elif pagina == "Analisis Mercado":
                 st.info("Los servicios donde estamos más baratos representan una ventaja competitiva. Considerar si hay margen para subir precios sin perder competitividad.")
         else:
             st.success("✅ **Situación óptima:** No hay alertas de precios. Los precios de David están dentro del rango del mercado.")
+
+
+# ============================================
+# PÁGINA: FLOTAS COMPETENCIA
+# ============================================
+elif pagina == "Flotas Competencia":
+    st.title("🚌 Flotas de Competencia")
+
+    from db_competencia import (
+        obtener_competidores, obtener_vehiculos_competencia,
+        guardar_vehiculo_competencia, eliminar_vehiculo_competencia,
+        obtener_comparativa_flotas
+    )
+
+    competidores = obtener_competidores()
+
+    if not competidores:
+        st.warning("Primero debes añadir competidores en 'Análisis Mercado → Competidores'")
+    else:
+        # Tabs principales
+        tab_resumen, tab_editar, tab_lista = st.tabs(["📊 Resumen", "✏️ Editar Flotas", "📋 Lista Vehículos"])
+
+        with tab_resumen:
+            st.subheader("Comparativa de Flotas")
+
+            comparativa = obtener_comparativa_flotas()
+
+            if comparativa['resumen']:
+                res = comparativa['resumen']
+                col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+                col_m1.metric("Total Competidores", res['total_competidores'])
+                col_m2.metric("Vehículos Mercado", res['total_vehiculos_mercado'])
+                col_m3.metric("Capacidad Total", f"{res['capacidad_total_mercado']:,} plazas")
+                col_m4.metric("Líder Flota", res['lider_flota'] or "-")
+
+            if comparativa['competidores']:
+                df_flotas = pd.DataFrame(comparativa['competidores'])
+                df_flotas_show = df_flotas[['competidor', 'total_vehiculos', 'buses_grandes', 'buses_medianos',
+                                             'microbuses', 'edad_media', 'capacidad_total', 'con_pmr']].copy()
+                df_flotas_show.columns = ['Competidor', 'Total', 'Grandes (50+)', 'Medianos', 'Micro',
+                                          'Edad Media', 'Capacidad', 'PMR']
+                st.dataframe(df_flotas_show, use_container_width=True, hide_index=True)
+
+                # Gráficos
+                col_graf1, col_graf2 = st.columns(2)
+
+                with col_graf1:
+                    fig_flotas = px.bar(
+                        df_flotas,
+                        x='competidor',
+                        y='total_vehiculos',
+                        color='edad_media',
+                        title='Tamaño de Flota por Competidor',
+                        labels={'total_vehiculos': 'Vehículos', 'competidor': 'Competidor', 'edad_media': 'Edad Media'},
+                        color_continuous_scale='RdYlGn_r'
+                    )
+                    st.plotly_chart(fig_flotas, use_container_width=True)
+
+                df_anal_filtrado = df_flotas[df_flotas['total_vehiculos'] > 0].copy()
+                if len(df_anal_filtrado) > 0:
+                    with col_graf2:
+                        fig_scatter = px.scatter(
+                            df_anal_filtrado,
+                            x='edad_media',
+                            y='capacidad_total',
+                            size='total_vehiculos',
+                            color='competidor',
+                            hover_data=['buses_grandes', 'buses_medianos', 'microbuses'],
+                            title='Edad vs Capacidad',
+                            labels={'edad_media': 'Edad Media (años)', 'capacidad_total': 'Capacidad (plazas)'},
+                            size_max=50
+                        )
+                        fig_scatter.update_layout(height=400, showlegend=False)
+                        st.plotly_chart(fig_scatter, use_container_width=True)
+
+                    # Composición de flotas
+                    st.markdown("**Composición de Flotas**")
+                    df_stacked = df_anal_filtrado[['competidor', 'buses_grandes', 'buses_medianos', 'microbuses']].copy()
+                    df_stacked = df_stacked.melt(id_vars='competidor', var_name='Tipo', value_name='Cantidad')
+                    df_stacked['Tipo'] = df_stacked['Tipo'].replace({
+                        'buses_grandes': 'Grandes (50+)',
+                        'buses_medianos': 'Medianos (30-49)',
+                        'microbuses': 'Micros (<30)'
+                    })
+                    fig_stacked = px.bar(
+                        df_stacked,
+                        x='competidor',
+                        y='Cantidad',
+                        color='Tipo',
+                        barmode='stack',
+                        color_discrete_map={'Grandes (50+)': '#1f77b4', 'Medianos (30-49)': '#ff7f0e', 'Micros (<30)': '#2ca02c'}
+                    )
+                    fig_stacked.update_layout(height=400, xaxis_tickangle=-45)
+                    st.plotly_chart(fig_stacked, use_container_width=True)
+
+                    # Indicadores de calidad
+                    st.markdown("**Indicadores de Calidad de Flota**")
+                    df_calidad = df_anal_filtrado.copy()
+                    df_calidad['% PMR'] = (df_calidad['con_pmr'] / df_calidad['total_vehiculos'] * 100).round(1)
+                    df_calidad['% Escolar'] = (df_calidad['escolares'] / df_calidad['total_vehiculos'] * 100).round(1)
+                    df_calidad['% WiFi'] = (df_calidad['con_wifi'] / df_calidad['total_vehiculos'] * 100).round(1)
+                    df_calidad['Modernidad'] = df_calidad['edad_media'].apply(lambda x: max(0, min(100, 100 - (x * 5))) if x else 0).round(0)
+
+                    df_calidad_show = df_calidad[['competidor', 'total_vehiculos', 'edad_media', '% PMR', '% Escolar', '% WiFi', 'Modernidad']].copy()
+                    df_calidad_show.columns = ['Competidor', 'Vehículos', 'Edad Media', '% PMR', '% Escolar', '% WiFi', 'Índice Modernidad']
+                    st.dataframe(df_calidad_show, use_container_width=True, hide_index=True)
+
+        with tab_editar:
+            st.subheader("Editar Flotas")
+
+            col_sel, col_add = st.columns([2, 1])
+
+            with col_sel:
+                comp_editar = st.selectbox("Seleccionar competidor", [c['nombre'] for c in competidores], key="flota_comp_editar")
+                comp_id_editar = next((c['id'] for c in competidores if c['nombre'] == comp_editar), None)
+
+            with col_add:
+                st.markdown("**Añadir Vehículo**")
+                with st.popover("➕ Nuevo Vehículo"):
+                    with st.form("form_add_veh_flota"):
+                        new_mat = st.text_input("Matrícula")
+                        new_plazas = st.number_input("Plazas", min_value=1, max_value=100, value=55)
+                        new_ano = st.number_input("Año", min_value=1990, max_value=2026, value=2020)
+                        new_marca = st.text_input("Marca")
+                        new_modelo = st.text_input("Modelo")
+                        if st.form_submit_button("Añadir", type="primary"):
+                            guardar_vehiculo_competencia(
+                                competidor_id=comp_id_editar,
+                                matricula=new_mat,
+                                tipo_vehiculo='AUTOBUS',
+                                marca=new_marca,
+                                modelo=new_modelo,
+                                plazas=new_plazas,
+                                ano_matriculacion=new_ano
+                            )
+                            st.success("Vehículo añadido")
+                            st.rerun()
+
+            if comp_id_editar:
+                vehiculos_comp = obtener_vehiculos_competencia(competidor_id=comp_id_editar, solo_activos=False)
+
+                activos = [v for v in vehiculos_comp if v.get('activo', True)]
+                inactivos = [v for v in vehiculos_comp if not v.get('activo', True)]
+                st.info(f"**{comp_editar}**: {len(activos)} activos, {len(inactivos)} inactivos")
+
+                col_btn1, col_btn2 = st.columns(2)
+                with col_btn1:
+                    if st.button("🔄 Marcar todos inactivos", key="btn_inactivar"):
+                        from supabase_client import get_admin_client
+                        client = get_admin_client()
+                        client.table('vehiculos_competencia').update({'activo': False}).eq('competidor_id', comp_id_editar).execute()
+                        st.rerun()
+
+                # Subtabs para edición
+                sub_lista, sub_form, sub_bulk = st.tabs(["📋 Tabla Editable", "✏️ Formulario", "📝 Masiva"])
+
+                with sub_lista:
+                    if vehiculos_comp:
+                        df_edit = pd.DataFrame(vehiculos_comp)
+                        df_edit = df_edit[['id', 'matricula', 'marca', 'modelo', 'plazas', 'ano_matriculacion', 'edad', 'distintivo_ambiental', 'activo']].copy()
+                        df_edit.columns = ['ID', 'Matrícula', 'Marca', 'Modelo', 'Plazas', 'Año', 'Edad', 'Distintivo', 'Activo']
+
+                        edited_df = st.data_editor(
+                            df_edit,
+                            hide_index=True,
+                            use_container_width=True,
+                            column_config={
+                                'ID': st.column_config.NumberColumn(disabled=True, width="small"),
+                                'Plazas': st.column_config.NumberColumn(min_value=1, max_value=100, width="small"),
+                                'Año': st.column_config.NumberColumn(min_value=1990, max_value=2026, width="small"),
+                                'Edad': st.column_config.NumberColumn(disabled=True, width="small"),
+                                'Distintivo': st.column_config.SelectboxColumn(options=["", "0", "ECO", "C", "B"], width="small"),
+                                'Activo': st.column_config.CheckboxColumn(width="small")
+                            },
+                            key=f"editor_flota_{comp_id_editar}"
+                        )
+
+                        if st.button("💾 Guardar Cambios", type="primary", key="btn_guardar_flota"):
+                            from supabase_client import get_admin_client
+                            client = get_admin_client()
+                            for _, row in edited_df.iterrows():
+                                ano = row['Año'] or 2020
+                                edad = round(datetime.now().year - ano + (datetime.now().month / 12), 1)
+                                client.table('vehiculos_competencia').update({
+                                    'matricula': row['Matrícula'],
+                                    'marca': row['Marca'],
+                                    'modelo': row['Modelo'],
+                                    'plazas': int(row['Plazas']) if row['Plazas'] else None,
+                                    'ano_matriculacion': int(ano),
+                                    'edad': edad,
+                                    'distintivo_ambiental': row['Distintivo'],
+                                    'activo': bool(row['Activo'])
+                                }).eq('id', row['ID']).execute()
+                            st.success("✅ Cambios guardados")
+                            st.rerun()
+                    else:
+                        st.info("No hay vehículos")
+
+                with sub_form:
+                    if vehiculos_comp:
+                        opciones_veh = [f"{v['matricula'] or 'Sin mat.'} - {v.get('marca', '')} {v.get('modelo', '')}" for v in vehiculos_comp]
+                        veh_sel_idx = st.selectbox("Vehículo", range(len(opciones_veh)), format_func=lambda x: opciones_veh[x], key="sel_veh_form")
+                        veh_edit = vehiculos_comp[veh_sel_idx]
+
+                        with st.form(f"form_edit_veh_{veh_edit['id']}"):
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                edit_mat = st.text_input("Matrícula", value=veh_edit.get('matricula') or '')
+                                edit_marca = st.text_input("Marca", value=veh_edit.get('marca') or '')
+                                edit_modelo = st.text_input("Modelo", value=veh_edit.get('modelo') or '')
+                            with col2:
+                                edit_plazas = st.number_input("Plazas", min_value=1, max_value=100, value=veh_edit.get('plazas') or 55)
+                                edit_ano = st.number_input("Año", min_value=1990, max_value=2026, value=veh_edit.get('ano_matriculacion') or 2020)
+                                distintivo_opciones = ["", "0", "ECO", "C", "B", "Sin distintivo"]
+                                distintivo_actual = veh_edit.get('distintivo_ambiental') or ''
+                                distintivo_idx = distintivo_opciones.index(distintivo_actual) if distintivo_actual in distintivo_opciones else 0
+                                edit_distintivo = st.selectbox("Distintivo", distintivo_opciones, index=distintivo_idx)
+                            with col3:
+                                edit_activo = st.checkbox("Activo", value=veh_edit.get('activo', True))
+                                edit_pmr = st.checkbox("PMR", value=bool(veh_edit.get('pmr')))
+                                edit_wc = st.checkbox("WC", value=bool(veh_edit.get('wc')))
+                                edit_wifi = st.checkbox("WiFi", value=bool(veh_edit.get('wifi')))
+
+                            col_b1, col_b2 = st.columns(2)
+                            with col_b1:
+                                if st.form_submit_button("💾 Guardar", type="primary", use_container_width=True):
+                                    from supabase_client import get_admin_client
+                                    client = get_admin_client()
+                                    edad = round(datetime.now().year - edit_ano + (datetime.now().month / 12), 1)
+                                    client.table('vehiculos_competencia').update({
+                                        'matricula': edit_mat, 'marca': edit_marca, 'modelo': edit_modelo,
+                                        'plazas': edit_plazas, 'ano_matriculacion': edit_ano, 'edad': edad,
+                                        'distintivo_ambiental': edit_distintivo, 'activo': edit_activo,
+                                        'pmr': edit_pmr, 'wc': edit_wc, 'wifi': edit_wifi
+                                    }).eq('id', veh_edit['id']).execute()
+                                    st.success("✅ Guardado")
+                                    st.rerun()
+                            with col_b2:
+                                if st.form_submit_button("🗑️ Eliminar", type="secondary", use_container_width=True):
+                                    eliminar_vehiculo_competencia(veh_edit['id'])
+                                    st.rerun()
+
+                with sub_bulk:
+                    st.markdown("**Pegar lista de matrículas activas**")
+                    st.caption("Los que estén en la lista → activos. Los que NO → inactivos.")
+
+                    matriculas_texto = st.text_area("Matrículas", height=200, placeholder="2903KGP\n3095HCG\n...", key="bulk_mat_flota")
+
+                    if st.button("✅ Actualizar Flota", type="primary", key="btn_bulk_flota"):
+                        if matriculas_texto.strip():
+                            from supabase_client import get_admin_client
+                            client = get_admin_client()
+
+                            lineas = matriculas_texto.strip().split('\n')
+                            matriculas_activas = [l.strip().split()[0].upper() for l in lineas if l.strip()]
+
+                            client.table('vehiculos_competencia').update({'activo': False}).eq('competidor_id', comp_id_editar).execute()
+
+                            existentes = client.table('vehiculos_competencia').select('id, matricula').eq('competidor_id', comp_id_editar).execute().data or []
+                            mat_existentes = {v['matricula'].upper(): v['id'] for v in existentes if v['matricula']}
+
+                            actualizados, creados = 0, 0
+                            for mat in matriculas_activas:
+                                if mat in mat_existentes:
+                                    client.table('vehiculos_competencia').update({'activo': True}).eq('id', mat_existentes[mat]).execute()
+                                    actualizados += 1
+                                else:
+                                    client.table('vehiculos_competencia').insert({
+                                        'competidor_id': comp_id_editar, 'matricula': mat,
+                                        'tipo_vehiculo': 'AUTOBUS', 'activo': True
+                                    }).execute()
+                                    creados += 1
+
+                            st.success(f"✅ {actualizados} actualizados, {creados} nuevos")
+                            st.rerun()
+
+        with tab_lista:
+            st.subheader("Listado de Vehículos")
+
+            col_f1, col_f2, col_f3, col_f4 = st.columns(4)
+            with col_f1:
+                filtro_comp = st.selectbox("Competidor", ["Todos"] + [c['nombre'] for c in competidores], key="filtro_comp_lista")
+            with col_f2:
+                filtro_tipo = st.selectbox("Tipo", ["Todos", "AUTOBUS", "MINIBUS", "MICROBUS"], key="filtro_tipo_lista")
+            with col_f3:
+                filtro_dist = st.selectbox("Distintivo", ["Todos", "0", "ECO", "C", "B"], key="filtro_dist_lista")
+            with col_f4:
+                filtro_ant = st.selectbox("Antigüedad", ["Todos", "< 5 años", "5-10 años", "> 10 años"], key="filtro_ant_lista")
+
+            comp_id_filtro = next((c['id'] for c in competidores if c['nombre'] == filtro_comp), None) if filtro_comp != "Todos" else None
+            vehiculos = obtener_vehiculos_competencia(competidor_id=comp_id_filtro)
+
+            if vehiculos:
+                df_veh = pd.DataFrame(vehiculos)
+
+                if filtro_tipo != "Todos":
+                    df_veh = df_veh[df_veh['tipo_vehiculo'] == filtro_tipo]
+                if filtro_dist != "Todos":
+                    df_veh = df_veh[df_veh['distintivo_ambiental'] == filtro_dist]
+                if filtro_ant == "< 5 años":
+                    df_veh = df_veh[df_veh['edad'] < 5]
+                elif filtro_ant == "5-10 años":
+                    df_veh = df_veh[(df_veh['edad'] >= 5) & (df_veh['edad'] <= 10)]
+                elif filtro_ant == "> 10 años":
+                    df_veh = df_veh[df_veh['edad'] > 10]
+
+                st.caption(f"Mostrando {len(df_veh)} vehículos")
+
+                if len(df_veh) > 0:
+                    col_hist, col_table = st.columns([1, 2])
+                    with col_hist:
+                        fig_hist = px.histogram(df_veh, x='edad', nbins=10, labels={'edad': 'Edad (años)'}, color_discrete_sequence=['#3366cc'])
+                        fig_hist.update_layout(height=300, margin=dict(t=20, b=20))
+                        st.plotly_chart(fig_hist, use_container_width=True)
+
+                    with col_table:
+                        df_show = df_veh[['competidor_nombre', 'matricula', 'marca', 'modelo', 'plazas', 'ano_matriculacion', 'edad', 'distintivo_ambiental']].copy()
+                        df_show.columns = ['Competidor', 'Matrícula', 'Marca', 'Modelo', 'Plazas', 'Año', 'Edad', 'Distintivo']
+                        df_show['Matrícula'] = df_show['Matrícula'].fillna('-')
+                        st.dataframe(df_show, use_container_width=True, hide_index=True, height=300)
+            else:
+                st.info("No hay vehículos registrados")
 
 
 # ============================================
@@ -3231,10 +3328,11 @@ elif pagina == "Seguimiento Presupuestos":
     fecha_limite = datetime.now() - timedelta(days=dias_antiguedad)
     pendientes = pendientes[pendientes['Fecha alta'] <= fecha_limite]
 
-    # Métricas
+    # Métricas (contando presupuestos únicos, no líneas)
+    num_presupuestos_unicos = pendientes['Cod. Presupuesto'].nunique()
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Presupuestos Pendientes", len(pendientes))
+        st.metric("Presupuestos Pendientes", num_presupuestos_unicos)
     with col2:
         st.metric("Importe Total", f"€{pendientes['Total importe'].sum():,.2f}")
     with col3:
@@ -3242,24 +3340,34 @@ elif pagina == "Seguimiento Presupuestos":
 
     st.markdown("---")
 
-    # Tabla de presupuestos pendientes
+    # Tabla de presupuestos pendientes (agrupados por Cod. Presupuesto)
     st.subheader("Lista de Presupuestos Pendientes")
 
     if not pendientes.empty:
+        # Agrupar por Cod. Presupuesto (cada presupuesto es una unidad)
+        pendientes_agrupados = pendientes.groupby('Cod. Presupuesto').agg({
+            'Cliente': 'first',
+            'Descripción': lambda x: ' | '.join(x.dropna().unique()[:3]),  # Primeras 3 descripciones únicas
+            'Total importe': 'sum',
+            'Fecha alta': 'first',
+            'Atendido por': 'first',
+            'Estado presupuesto': 'first'
+        }).reset_index()
+
         # Calcular días desde alta
-        pendientes['Dias Pendiente'] = (datetime.now() - pendientes['Fecha alta']).dt.days
+        pendientes_agrupados['Dias Pendiente'] = (datetime.now() - pendientes_agrupados['Fecha alta']).dt.days
 
         cols_mostrar = ['Cod. Presupuesto', 'Cliente', 'Descripción', 'Total importe',
                         'Fecha alta', 'Dias Pendiente', 'Atendido por', 'Estado presupuesto']
 
         st.dataframe(
-            pendientes[cols_mostrar].sort_values('Dias Pendiente', ascending=False),
+            pendientes_agrupados[cols_mostrar].sort_values('Dias Pendiente', ascending=False),
             use_container_width=True,
             height=400
         )
 
         # Exportar
-        csv = pendientes[cols_mostrar].to_csv(index=False).encode('utf-8')
+        csv = pendientes_agrupados[cols_mostrar].to_csv(index=False).encode('utf-8')
         st.download_button(
             "📥 Exportar a CSV",
             csv,
@@ -3448,13 +3556,17 @@ elif pagina == "Clientes":
                     servicios = cliente_info.get('total_services', 0)
                     st.markdown(f"**Servicios totales:** {int(servicios) if pd.notna(servicios) else 0}")
 
-                # Historial de presupuestos
+                # Historial de presupuestos (agrupados por Cod. Presupuesto)
                 st.markdown("**Historial de presupuestos:**")
-                historial = df[df['Código'] == codigo_cliente][
-                    ['Cod. Presupuesto', 'Fecha alta', 'Descripción', 'Total importe', 'Estado presupuesto']
-                ].sort_values('Fecha alta', ascending=False)
+                historial_raw = df[df['Código'] == codigo_cliente].copy()
 
-                if not historial.empty:
+                if not historial_raw.empty:
+                    historial = historial_raw.groupby('Cod. Presupuesto').agg({
+                        'Fecha alta': 'first',
+                        'Descripción': lambda x: ' | '.join(x.dropna().unique()[:3]),
+                        'Total importe': 'sum',
+                        'Estado presupuesto': 'first'
+                    }).reset_index().sort_values('Fecha alta', ascending=False)
                     st.dataframe(historial, use_container_width=True, height=200)
                 else:
                     st.info("No hay presupuestos para este cliente")
@@ -3576,16 +3688,40 @@ elif pagina == "Analisis Conversion":
     # ========== FILTROS ==========
     st.subheader("Filtros")
 
-    col1, col2, col3, col4 = st.columns(4)
-
     hoy = datetime.now()
 
-    with col1:
-        # Filtro de año con este año por defecto
-        años_disponibles = sorted(df['Fecha alta'].dt.year.dropna().unique().astype(int).tolist(), reverse=True)
-        año_sel = st.selectbox("Año", años_disponibles, index=0 if hoy.year in años_disponibles else 0)
+    # Primera fila: Filtro de fechas
+    col_fecha_tipo, col_fecha_desde, col_fecha_hasta = st.columns([1, 1, 1])
 
-    with col2:
+    with col_fecha_tipo:
+        campo_fecha = st.selectbox("Filtrar por", ["Fecha de alta", "Fecha de salida"], key="campo_fecha_conv")
+
+    # Determinar columna de fecha según selección
+    col_fecha = 'Fecha alta' if campo_fecha == "Fecha de alta" else 'Fecha salida'
+
+    # Calcular rango de fechas disponibles
+    fechas_validas = df[col_fecha].dropna()
+    if len(fechas_validas) > 0:
+        fecha_min = fechas_validas.min().date()
+        fecha_max = fechas_validas.max().date()
+    else:
+        fecha_min = hoy.date() - timedelta(days=365)
+        fecha_max = hoy.date()
+
+    # Por defecto: desde inicio del año actual hasta la fecha máxima disponible
+    fecha_default_desde = max(datetime(hoy.year, 1, 1).date(), fecha_min)
+    fecha_default_hasta = min(hoy.date(), fecha_max)
+
+    with col_fecha_desde:
+        fecha_desde = st.date_input("Desde", value=fecha_default_desde, min_value=fecha_min, max_value=fecha_max, key="fecha_desde_conv")
+
+    with col_fecha_hasta:
+        fecha_hasta = st.date_input("Hasta", value=fecha_default_hasta, min_value=fecha_min, max_value=fecha_max, key="fecha_hasta_conv")
+
+    # Segunda fila: Otros filtros
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
         # Obtener tipos con descripciones
         tipos_guardados = obtener_tipos_servicio_db()
         codigos_unicos = sorted(df['Tipo Servicio'].dropna().unique().tolist())
@@ -3596,16 +3732,21 @@ elif pagina == "Analisis Conversion":
         descripciones_unicas = ['Todos'] + sorted(set([v for k, v in opciones_tipo.items() if k != 'Todos']))
         tipo_sel_conv = st.selectbox("Tipo de Servicio", descripciones_unicas, key="tipo_conv")
 
-    with col3:
+    with col2:
         grupos = obtener_grupos_clientes(df)
         grupo_sel_conv = st.selectbox("Grupo de Clientes", grupos, key="grupo_conv")
 
-    with col4:
+    with col3:
         fuentes = obtener_fuentes(df)
         fuente_sel = st.selectbox("Fuente", fuentes, key="fuente_conv")
 
     # Aplicar filtros
-    df_conv = df[df['Fecha alta'].dt.year == año_sel].copy()
+    df_conv = df.copy()
+
+    # Filtro por rango de fechas
+    if col_fecha in df_conv.columns:
+        df_conv = df_conv[df_conv[col_fecha].notna()]
+        df_conv = df_conv[(df_conv[col_fecha].dt.date >= fecha_desde) & (df_conv[col_fecha].dt.date <= fecha_hasta)]
 
     if tipo_sel_conv != 'Todos':
         codigos_filtrar = [cod for cod, desc in opciones_tipo.items() if desc == tipo_sel_conv]
@@ -3617,10 +3758,13 @@ elif pagina == "Analisis Conversion":
     if fuente_sel != 'Todos':
         df_conv = df_conv[df_conv['Conocido por?'] == fuente_sel]
 
+    # Mostrar rango seleccionado
+    st.caption(f"📅 Mostrando datos por **{campo_fecha}** del {fecha_desde.strftime('%d/%m/%Y')} al {fecha_hasta.strftime('%d/%m/%Y')} ({len(df_conv)} registros)")
+
     st.markdown("---")
 
     # ========== RANKING DE COMERCIALES ==========
-    st.subheader(f"Ranking de Comerciales {año_sel}")
+    st.subheader("Ranking de Comerciales")
 
     # Calcular métricas por comercial (contando presupuestos únicos, no líneas)
     # Un presupuesto = un Cod. Presupuesto único
@@ -3829,7 +3973,7 @@ elif pagina == "Analisis Conversion":
     st.markdown("---")
 
     # ========== EVOLUCIÓN MENSUAL ==========
-    st.subheader(f"Evolucion Mensual {año_sel}")
+    st.subheader("Evolucion Mensual")
 
     df_mensual = df_conv[df_conv['Fecha alta'].notna()].copy()
     df_mensual['Mes'] = df_mensual['Fecha alta'].dt.to_period('M').astype(str)
@@ -3871,7 +4015,7 @@ elif pagina == "Analisis Conversion":
     st.download_button(
         "Exportar ranking",
         csv,
-        f"ranking_comerciales_{año_sel}.csv",
+        "ranking_comerciales.csv",
         "text/csv"
     )
 
@@ -3880,12 +4024,18 @@ elif pagina == "Analisis Conversion":
     # ========== TABLA DE DATOS FILTRADOS ==========
     st.subheader("Datos del Filtro Aplicado")
 
-    # Preparar columnas a mostrar
-    columnas_mostrar = ['Cod. Presupuesto', 'Fecha alta', 'Cliente', 'Tipo Servicio',
-                        'Estado presupuesto', 'Total importe', 'Atendido por', 'Grupo de clientes']
-    columnas_disponibles = [col for col in columnas_mostrar if col in df_conv.columns]
+    # Agrupar por Cod. Presupuesto (cada presupuesto es una unidad)
+    df_agrupado = df_conv.groupby('Cod. Presupuesto').agg({
+        'Fecha alta': 'first',
+        'Cliente': 'first',
+        'Tipo Servicio': lambda x: ' | '.join(x.dropna().unique()[:3]),
+        'Estado presupuesto': 'first',
+        'Total importe': 'sum',
+        'Atendido por': 'first',
+        'Grupo de clientes': 'first'
+    }).reset_index()
 
-    df_tabla = df_conv[columnas_disponibles].copy()
+    df_tabla = df_agrupado.copy()
 
     # Formatear fecha
     if 'Fecha alta' in df_tabla.columns:
@@ -3896,22 +4046,25 @@ elif pagina == "Analisis Conversion":
         df_tabla['Total importe'] = df_tabla['Total importe'].apply(lambda x: f"{x:,.2f} €" if pd.notna(x) else "-")
 
     # Mapear estados
-    estados_map = {'A': 'Aceptado', 'AP': 'Aceptado Parcial', 'P': 'Pendiente', 'R': 'Rechazado', 'C': 'Cancelado'}
+    estados_map = {'A': 'Aceptado', 'AP': 'Aceptado Parcial', 'P': 'Pendiente', 'R': 'Rechazado', 'C': 'Cancelado', 'E': 'Enviado', 'V': 'Valorado'}
     if 'Estado presupuesto' in df_tabla.columns:
         df_tabla['Estado presupuesto'] = df_tabla['Estado presupuesto'].map(estados_map).fillna(df_tabla['Estado presupuesto'])
 
     # Mapear tipos de servicio a descripción
     if 'Tipo Servicio' in df_tabla.columns:
-        def get_tipo_desc(codigo):
-            if pd.isna(codigo):
-                return codigo
-            desc = tipos_guardados.get(codigo, {}).get('descripcion', '')
-            return normalizar_texto(desc) if desc else codigo
-        df_tabla['Tipo Servicio'] = df_tabla['Tipo Servicio'].apply(get_tipo_desc)
+        def get_tipos_desc(tipos_str):
+            if pd.isna(tipos_str):
+                return tipos_str
+            partes = tipos_str.split(' | ')
+            descripciones = []
+            for codigo in partes:
+                desc = tipos_guardados.get(codigo.strip(), {}).get('descripcion', '')
+                descripciones.append(normalizar_texto(desc) if desc else codigo.strip())
+            return ' | '.join(descripciones)
+        df_tabla['Tipo Servicio'] = df_tabla['Tipo Servicio'].apply(get_tipos_desc)
 
     # Mostrar resumen
-    total_lineas = len(df_tabla)
-    total_presupuestos_unicos = df_conv['Cod. Presupuesto'].nunique()
+    total_presupuestos_unicos = len(df_agrupado)
     filtros_activos = []
     if tipo_sel_conv != 'Todos':
         filtros_activos.append(f"Tipo: {tipo_sel_conv}")
@@ -3926,18 +4079,17 @@ elif pagina == "Analisis Conversion":
     <div style="background:#f8f9fa;padding:12px 16px;border-radius:8px;margin-bottom:16px;border-left:4px solid #F15025;">
         <div style="display:flex;justify-content:space-between;align-items:center;">
             <div>
-                <span style="font-size:14px;color:#666;">Año: <strong>{año_sel}</strong></span>
+                <span style="font-size:14px;color:#666;">Periodo: <strong>{fecha_desde.strftime('%d/%m/%Y')} - {fecha_hasta.strftime('%d/%m/%Y')}</strong></span>
                 <span style="margin-left:16px;font-size:13px;color:#888;">{filtros_texto}</span>
             </div>
             <div style="text-align:right;">
                 <div style="font-size:18px;font-weight:600;color:#333;">{total_presupuestos_unicos} presupuestos</div>
-                <div style="font-size:12px;color:#888;">{total_lineas} líneas de servicio</div>
             </div>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    # Tabla con datos
+    # Tabla con datos agrupados por presupuesto
     st.dataframe(
         df_tabla.sort_values('Fecha alta', ascending=False) if 'Fecha alta' in df_tabla.columns else df_tabla,
         use_container_width=True,
@@ -3945,12 +4097,12 @@ elif pagina == "Analisis Conversion":
         height=400
     )
 
-    # Exportar datos filtrados
-    csv_datos = df_conv[columnas_disponibles].to_csv(index=False).encode('utf-8')
+    # Exportar datos filtrados (agrupados por presupuesto)
+    csv_datos = df_agrupado.to_csv(index=False).encode('utf-8')
     st.download_button(
         "Exportar datos filtrados",
         csv_datos,
-        f"datos_conversion_{año_sel}.csv",
+        "datos_conversion.csv",
         "text/csv",
         key="export_datos_conv"
     )

@@ -360,7 +360,7 @@ def obtener_estadisticas_flota_competencia(competidor_id: int = None) -> list:
 
 @st.cache_data(ttl=300, show_spinner="Generando comparativa...")
 def _obtener_comparativa_flotas_cached() -> dict:
-    """Versión cacheada de comparativa de flotas."""
+    """Versión cacheada de comparativa de flotas (solo vehículos activos)."""
     stats = _obtener_estadisticas_flota_cached()
 
     if not stats:
@@ -374,14 +374,22 @@ def _obtener_comparativa_flotas_cached() -> dict:
         suma_ponderada = sum((s['edad_media'] or 0) * (s['total_vehiculos'] or 0) for s in stats)
         edad_media_mercado = round(suma_ponderada / total_vehiculos, 1)
 
+    # Líder y mayor capacidad basados solo en activos
+    stats_con_vehiculos = [s for s in stats if s['total_vehiculos'] > 0]
+    lider = max(stats_con_vehiculos, key=lambda x: x['total_vehiculos'] or 0) if stats_con_vehiculos else None
+    mayor_cap = max(stats_con_vehiculos, key=lambda x: x['capacidad_total'] or 0) if stats_con_vehiculos else None
+
     return {
         'competidores': stats,
         'resumen': {
-            'total_competidores': len([s for s in stats if s['total_vehiculos'] > 0]),
+            'total_competidores': len(stats_con_vehiculos),
             'total_vehiculos_mercado': total_vehiculos,
             'capacidad_total_mercado': total_capacidad,
             'edad_media_mercado': edad_media_mercado,
-            'lider_flota': max(stats, key=lambda x: x['total_vehiculos'] or 0)['competidor'] if stats else None
+            'lider_flota': lider['competidor'] if lider else None,
+            'lider_flota_vehiculos': lider['total_vehiculos'] if lider else 0,
+            'mayor_capacidad': mayor_cap['competidor'] if mayor_cap else None,
+            'mayor_capacidad_plazas': mayor_cap['capacidad_total'] if mayor_cap else 0
         }
     }
 

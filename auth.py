@@ -1,11 +1,21 @@
 """
 Sistema de autenticación para CRM Autocares David
 Usa Azure AD (Microsoft 365) a través de Supabase
+Con persistencia de sesión mediante cookies seguras
 """
 import streamlit as st
 from supabase_client import get_supabase, get_admin_client
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
+import extra_streamlit_components as stx
+
+COOKIE_EXPIRY_DAYS = 7  # Días de validez de la cookie
+
+def get_cookie_manager():
+    """Obtiene el cookie manager (sin cache porque usa widgets)"""
+    if 'cookie_manager' not in st.session_state:
+        st.session_state.cookie_manager = stx.CookieManager()
+    return st.session_state.cookie_manager
 
 
 def login_page():
@@ -75,6 +85,7 @@ def _handle_auth_code(code: str):
     st.info("🔄 Completando autenticación...")
 
     supabase = get_supabase()
+    cookie_manager = get_cookie_manager()
 
     try:
         # Intercambiar código por sesión
@@ -85,11 +96,24 @@ def _handle_auth_code(code: str):
             st.session_state.access_token = response.session.access_token
             st.session_state.refresh_token = response.session.refresh_token
 
+            # Guardar tokens en cookies seguras (persisten al refrescar)
+            cookie_manager.set(
+                "crm_access_token",
+                response.session.access_token,
+                expires_at=datetime.now() + timedelta(days=COOKIE_EXPIRY_DAYS)
+            )
+            cookie_manager.set(
+                "crm_refresh_token",
+                response.session.refresh_token,
+                expires_at=datetime.now() + timedelta(days=COOKIE_EXPIRY_DAYS)
+            )
+
             # Registrar usuario si es nuevo
             registrar_usuario_si_nuevo(response.user)
 
             # Limpiar URL y recargar
             st.query_params.clear()
+            time.sleep(0.5)  # Dar tiempo a que se guarden las cookies
             st.rerun()
         else:
             st.error("No se pudo obtener la sesión")
@@ -203,12 +227,21 @@ def check_auth():
     """
     Verifica si el usuario está autenticado y autorizado.
     Retorna los datos del usuario si está autenticado, None si no.
+    Primero intenta recuperar tokens de cookies si no están en session_state.
     """
     supabase = get_supabase()
+    cookie_manager = get_cookie_manager()
 
-    # Verificar si hay sesión en session_state
+    # Si no hay tokens en session_state, intentar recuperar de cookies
     if 'access_token' not in st.session_state:
-        return None
+        access_token = cookie_manager.get("crm_access_token")
+        refresh_token = cookie_manager.get("crm_refresh_token")
+
+        if access_token and refresh_token:
+            st.session_state.access_token = access_token
+            st.session_state.refresh_token = refresh_token
+        else:
+            return None
 
     try:
         # Verificar sesión con Supabase
@@ -220,6 +253,7 @@ def check_auth():
         user_response = supabase.auth.get_user()
 
         if not user_response or not user_response.user:
+            _clear_auth_data(cookie_manager)
             return None
 
         user = user_response.user
@@ -242,12 +276,24 @@ def check_auth():
         return result.data
 
     except Exception as e:
-        # Token inválido o expirado
-        if 'access_token' in st.session_state:
-            del st.session_state.access_token
-        if 'refresh_token' in st.session_state:
-            del st.session_state.refresh_token
+        # Token inválido o expirado - limpiar todo
+        _clear_auth_data(cookie_manager)
         return None
+
+
+def _clear_auth_data(cookie_manager=None):
+    """Limpia tokens de session_state y cookies"""
+    if 'access_token' in st.session_state:
+        del st.session_state.access_token
+    if 'refresh_token' in st.session_state:
+        del st.session_state.refresh_token
+
+    if cookie_manager:
+        try:
+            cookie_manager.delete("crm_access_token")
+            cookie_manager.delete("crm_refresh_token")
+        except:
+            pass
 
 
 def get_user_permissions(user_id: str) -> dict:
@@ -273,19 +319,18 @@ def get_user_permissions(user_id: str) -> dict:
 
 
 def logout():
-    """Cierra sesión del usuario"""
+    """Cierra sesión del usuario y limpia cookies"""
     supabase = get_supabase()
+    cookie_manager = get_cookie_manager()
 
     try:
         supabase.auth.sign_out()
     except:
         pass
 
-    # Limpiar session_state
-    if 'access_token' in st.session_state:
-        del st.session_state.access_token
-    if 'refresh_token' in st.session_state:
-        del st.session_state.refresh_token
+    # Limpiar session_state y cookies
+    _clear_auth_data(cookie_manager)
+
     if 'user' in st.session_state:
         del st.session_state.user
 
