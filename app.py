@@ -5661,22 +5661,32 @@ elif pagina == "Calculadora":
     if 'calc_resultado' not in st.session_state:
         st.session_state.calc_resultado = None
 
-    # Obtener datos necesarios
+    # Obtener datos necesarios - DESDE CONFIGURACIÓN DE TARIFAS
     tipos_bus = obtener_tipos_bus()
     tipos_bus_dict = {f"{b['nombre']} ({b['capacidad']} plz)": b for b in tipos_bus}
-    # Tipos de servicio con descripciones
+
+    # Tipos de servicio AGRUPADOS POR DESCRIPCIÓN (igual que en matriz de tarifas)
     tipos_srv_calc = obtener_tipos_servicio_db()
-    codigos_srv_calc = sorted(df['Tipo Servicio'].dropna().unique().tolist())
-    # Crear mapeo descripción -> código
-    desc_a_codigo_calc = {}
-    tipos_servicio_lista = ['Todos']
-    for codigo in codigos_srv_calc:
-        desc = tipos_srv_calc.get(codigo, {}).get('descripcion', '')
-        desc_normalizada = normalizar_texto(desc) if desc else codigo
-        tipos_servicio_lista.append(desc_normalizada)
-        desc_a_codigo_calc[desc_normalizada] = codigo
-    # Grupos de cliente desde los datos reales
-    grupos_cliente_lista = sorted(df['Grupo de clientes'].dropna().unique().tolist())
+    from collections import defaultdict
+    servicios_por_desc_calc = defaultdict(list)
+    for codigo, info in tipos_srv_calc.items():
+        desc = info.get('descripcion', codigo).strip().title()
+        servicios_por_desc_calc[desc].append(codigo)
+
+    # Lista de descripciones únicas para el selector
+    tipos_servicio_lista = ['Todos'] + sorted(servicios_por_desc_calc.keys())
+
+    # Grupos de cliente DESDE CONFIGURACIÓN DE TARIFAS
+    tipos_cliente_cfg = obtener_tipos_cliente()
+    if tipos_cliente_cfg:
+        grupos_cliente_lista = [c['nombre'] for c in tipos_cliente_cfg]
+        grupos_cliente_dict = {c['nombre']: c for c in tipos_cliente_cfg}
+    else:
+        # Fallback a datos si no hay configuración
+        grupos_cliente_lista = sorted(df['Grupo de clientes'].dropna().unique().tolist())
+        grupos_cliente_dict = {}
+
+    # Clientes específicos para tarifas VIP
     clientes_lista = ["-- Sin cliente especifico --"] + sorted(df['Cliente'].dropna().unique().tolist())
     lugares_guardados = obtener_lugares_frecuentes(limite=20)
     base_direccion = obtener_config_calc('base_direccion', 'Paseo de Anoeta 22, San Sebastian')
@@ -5794,13 +5804,21 @@ elif pagina == "Calculadora":
                 bus_info = tipos_bus_dict[tipo_bus_sel]
             with c4:
                 tipo_servicio_sel = st.selectbox("Tipo de Servicio", tipos_servicio_lista, key="c_tipo_srv")
-                tipo_servicio_codigo = desc_a_codigo_calc.get(tipo_servicio_sel) if tipo_servicio_sel != "Todos" else None
+                # Obtener primer código de la descripción seleccionada (todos comparten tarifa)
+                if tipo_servicio_sel != "Todos" and tipo_servicio_sel in servicios_por_desc_calc:
+                    tipo_servicio_codigo = servicios_por_desc_calc[tipo_servicio_sel][0]
+                else:
+                    tipo_servicio_codigo = None
             with c5:
                 num_vehiculos = st.number_input("Vehiculos", min_value=1, max_value=10, value=1, key="c_vehiculos")
 
             c6, c7 = st.columns(2)
             with c6:
-                grupo_cliente_sel = st.selectbox("Grupo de cliente", grupos_cliente_lista, key="c_grupo_cli")
+                grupo_cliente_sel = st.selectbox("Segmento cliente", grupos_cliente_lista, key="c_grupo_cli")
+                # Obtener multiplicador del segmento
+                mult_cliente = 1.0
+                if grupos_cliente_dict and grupo_cliente_sel in grupos_cliente_dict:
+                    mult_cliente = float(grupos_cliente_dict[grupo_cliente_sel].get('multiplicador', 1.0))
             with c7:
                 cliente_sel = st.selectbox("Cliente especifico", clientes_lista, key="c_cliente")
                 cliente = None if cliente_sel == "-- Sin cliente especifico --" else cliente_sel
