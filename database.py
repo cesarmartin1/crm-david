@@ -648,3 +648,166 @@ def contar_notas_por_cliente():
         cliente = nota['cliente']
         conteo[cliente] = conteo.get(cliente, 0) + 1
     return conteo
+
+
+# ============================================
+# LUGARES FRECUENTES (Calculadora)
+# ============================================
+
+def guardar_lugar_frecuente(nombre: str, direccion: str, lat: float, lng: float, tipo: str = "general"):
+    """Guarda un lugar frecuente para la calculadora."""
+    client = get_admin_client()
+    # Verificar si ya existe
+    existe = client.table('lugares_frecuentes').select('id').eq('nombre', nombre).execute()
+    if existe.data:
+        # Actualizar
+        client.table('lugares_frecuentes').update({
+            'direccion': direccion,
+            'lat': lat,
+            'lng': lng,
+            'tipo': tipo
+        }).eq('nombre', nombre).execute()
+    else:
+        # Insertar
+        client.table('lugares_frecuentes').insert({
+            'nombre': nombre,
+            'direccion': direccion,
+            'lat': lat,
+            'lng': lng,
+            'tipo': tipo
+        }).execute()
+
+def obtener_lugares_frecuentes(limite: int = None):
+    """Obtiene los lugares frecuentes."""
+    client = get_admin_client()
+    try:
+        query = client.table('lugares_frecuentes').select('*').order('nombre')
+        if limite:
+            query = query.limit(limite)
+        result = query.execute()
+        return result.data or []
+    except:
+        return []
+
+def buscar_lugares_frecuentes(termino: str):
+    """Busca lugares frecuentes por nombre."""
+    client = get_admin_client()
+    try:
+        result = client.table('lugares_frecuentes').select('*').ilike('nombre', f'%{termino}%').execute()
+        return result.data or []
+    except:
+        return []
+
+
+# ============================================
+# CONFIGURACIÓN CALCULADORA
+# ============================================
+
+def obtener_config_calc(clave: str = None, default: str = None):
+    """Obtiene la configuración de la calculadora. Si se pasa clave, retorna ese valor."""
+    client = get_admin_client()
+    try:
+        if clave:
+            result = client.table('config_calculadora').select('valor').eq('clave', clave).execute()
+            if result.data:
+                return result.data[0]['valor']
+            return default
+        else:
+            result = client.table('config_calculadora').select('*').execute()
+            if result.data:
+                config = {}
+                for item in result.data:
+                    config[item['clave']] = item['valor']
+                return config
+            return {}
+    except:
+        return default if clave else {}
+
+def guardar_config_calc(clave: str, valor: str):
+    """Guarda un valor de configuración de la calculadora."""
+    client = get_admin_client()
+    try:
+        # Verificar si existe
+        existe = client.table('config_calculadora').select('id').eq('clave', clave).execute()
+        if existe.data:
+            client.table('config_calculadora').update({'valor': valor}).eq('clave', clave).execute()
+        else:
+            client.table('config_calculadora').insert({'clave': clave, 'valor': valor}).execute()
+    except:
+        pass
+
+
+# ============================================
+# CLIENTES DESACTIVADOS
+# ============================================
+
+import json
+
+def limpiar_cache_clientes_desactivados():
+    """Limpia caché de clientes desactivados."""
+    if 'clientes_desactivados_cache' in st.session_state:
+        del st.session_state['clientes_desactivados_cache']
+
+def obtener_clientes_desactivados(force_reload: bool = False):
+    """Obtiene la lista de clientes desactivados (usa config_general)."""
+    if not force_reload and 'clientes_desactivados_cache' in st.session_state:
+        return st.session_state['clientes_desactivados_cache'].copy()
+
+    client = get_admin_client()
+    try:
+        result = client.table('config_general').select('valor').eq('clave', 'clientes_desactivados').execute()
+        if result.data and result.data[0]['valor']:
+            datos = json.loads(result.data[0]['valor'])
+            st.session_state['clientes_desactivados_cache'] = datos
+            return datos.copy()
+    except Exception as e:
+        print(f"Error obteniendo clientes desactivados: {e}")
+    return {}
+
+def _guardar_clientes_desactivados(datos: dict):
+    """Guarda la lista de clientes desactivados usando upsert."""
+    client = get_admin_client()
+    valor_json = json.dumps(datos)
+    try:
+        # Usar upsert con on_conflict
+        client.table('config_general').upsert({
+            'clave': 'clientes_desactivados',
+            'valor': valor_json
+        }, on_conflict='clave').execute()
+        # Actualizar cache
+        st.session_state['clientes_desactivados_cache'] = datos.copy()
+        return True
+    except Exception as e:
+        print(f"Error guardando clientes desactivados: {e}")
+        return False
+
+def desactivar_cliente(cliente: str, motivo: str = ""):
+    """Desactiva un cliente para que no aparezca en la app."""
+    try:
+        # Forzar recarga desde DB para evitar datos obsoletos
+        desactivados = obtener_clientes_desactivados(force_reload=True)
+        desactivados[cliente] = {
+            'motivo': motivo,
+            'fecha': datetime.now().strftime('%Y-%m-%d %H:%M')
+        }
+        return _guardar_clientes_desactivados(desactivados)
+    except Exception as e:
+        print(f"Error desactivando cliente: {e}")
+        return False
+
+def reactivar_cliente(cliente: str):
+    """Reactiva un cliente previamente desactivado."""
+    try:
+        desactivados = obtener_clientes_desactivados(force_reload=True)
+        if cliente in desactivados:
+            del desactivados[cliente]
+            return _guardar_clientes_desactivados(desactivados)
+        return True
+    except Exception as e:
+        print(f"Error reactivando cliente: {e}")
+        return False
+
+def esta_cliente_desactivado(cliente: str) -> bool:
+    """Verifica si un cliente está desactivado."""
+    desactivados = obtener_clientes_desactivados()
+    return cliente in desactivados

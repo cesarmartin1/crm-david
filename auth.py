@@ -14,7 +14,7 @@ COOKIE_EXPIRY_DAYS = 7  # Días de validez de la cookie
 def get_cookie_manager():
     """Obtiene el cookie manager (sin cache porque usa widgets)"""
     if 'cookie_manager' not in st.session_state:
-        st.session_state.cookie_manager = stx.CookieManager()
+        st.session_state.cookie_manager = stx.CookieManager(key="crm_cookies")
     return st.session_state.cookie_manager
 
 
@@ -120,15 +120,19 @@ def _handle_auth_code(code: str):
             st.query_params.clear()
 
     except Exception as e:
-        error_msg = str(e)
-        # Manejar código ya usado (usuario recargó la página)
-        if "code" in error_msg.lower() and ("invalid" in error_msg.lower() or "expired" in error_msg.lower()):
-            st.warning("El código de autenticación expiró. Por favor, inicia sesión de nuevo.")
+        error_msg = str(e).lower()
+        # Manejar errores comunes de OAuth sin mostrar error al usuario
+        if "code" in error_msg and ("invalid" in error_msg or "expired" in error_msg):
+            pass  # Código expirado - silencioso
+        elif "flow state" in error_msg or "flow_state" in error_msg:
+            pass  # Estado de flujo inválido - silencioso
+        elif "pkce" in error_msg:
+            pass  # Error PKCE - silencioso
         else:
-            st.error(f"Error en autenticación: {error_msg}")
+            st.error(f"Error en autenticación: {str(e)}")
 
         st.query_params.clear()
-        time.sleep(2)
+        time.sleep(0.5)
         st.rerun()
 
 

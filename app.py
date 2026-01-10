@@ -90,7 +90,9 @@ from database import (
     guardar_tipo_cliente, obtener_tipos_cliente, eliminar_tipo_cliente,
     guardar_tarifa_servicio, obtener_tarifas_servicio, obtener_tarifa_servicio, eliminar_tarifa_servicio,
     guardar_tarifa_cliente, obtener_tarifas_cliente, obtener_tarifa_cliente_especifica, eliminar_tarifa_cliente,
-    calcular_tarifa
+    calcular_tarifa,
+    # Clientes desactivados
+    obtener_clientes_desactivados, desactivar_cliente, reactivar_cliente
 )
 
 # Competencia y Análisis de Mercado (Supabase - persistente)
@@ -1012,6 +1014,21 @@ try:
     df = cargar_datos()
     df_actuales = cargar_actuales()
     df_con_clientes, df_clientes, df_metricas_clientes = cargar_datos_clientes()
+
+    # Filtrar clientes desactivados de todos los DataFrames
+    clientes_desactivados = obtener_clientes_desactivados()
+    if clientes_desactivados:
+        lista_desactivados = list(clientes_desactivados.keys())
+        if 'Cliente' in df.columns:
+            df = df[~df['Cliente'].isin(lista_desactivados)]
+        if 'Cliente' in df_actuales.columns:
+            df_actuales = df_actuales[~df_actuales['Cliente'].isin(lista_desactivados)]
+        if 'Cliente' in df_con_clientes.columns:
+            df_con_clientes = df_con_clientes[~df_con_clientes['Cliente'].isin(lista_desactivados)]
+        if 'Cliente' in df_clientes.columns:
+            df_clientes = df_clientes[~df_clientes['Cliente'].isin(lista_desactivados)]
+        if 'Cliente' in df_metricas_clientes.columns:
+            df_metricas_clientes = df_metricas_clientes[~df_metricas_clientes['Cliente'].isin(lista_desactivados)]
 except Exception as e:
     st.error(f"Error cargando datos: {e}")
     st.stop()
@@ -1038,8 +1055,59 @@ if pagina == "Acciones":
 
     hoy = datetime.now()
 
+    # --- FILTROS POR FECHA ---
+    col_fecha_tipo, col_fecha_desde, col_fecha_hasta = st.columns([1, 1, 1])
+
+    with col_fecha_tipo:
+        campo_fecha_acc = st.selectbox("Filtrar por", ["Fecha de alta", "Fecha de salida"], key="campo_fecha_acc")
+
+    col_fecha_acc = 'Fecha alta' if campo_fecha_acc == "Fecha de alta" else 'Fecha Salida'
+
+    # Calcular rango de fechas disponibles
+    df['Fecha alta'] = pd.to_datetime(df['Fecha alta'], errors='coerce')
+    df['Fecha Salida'] = pd.to_datetime(df['Fecha Salida'], errors='coerce')
+    fechas_validas_acc = df[col_fecha_acc].dropna()
+
+    if len(fechas_validas_acc) > 0:
+        fecha_min_acc = fechas_validas_acc.min().date()
+        fecha_max_acc = fechas_validas_acc.max().date()
+    else:
+        fecha_min_acc = hoy.date() - timedelta(days=365)
+        fecha_max_acc = hoy.date()
+
+    fecha_default_desde_acc = max(datetime(hoy.year, 1, 1).date(), fecha_min_acc)
+    fecha_default_hasta_acc = min(hoy.date(), fecha_max_acc)
+
+    with col_fecha_desde:
+        fecha_desde_acc = st.date_input("Desde", value=fecha_default_desde_acc, min_value=fecha_min_acc, max_value=fecha_max_acc, key="fecha_desde_acc")
+
+    with col_fecha_hasta:
+        fecha_hasta_acc = st.date_input("Hasta", value=fecha_default_hasta_acc, min_value=fecha_min_acc, max_value=fecha_max_acc, key="fecha_hasta_acc")
+
+    # Aplicar filtro de fechas al DataFrame
+    df_filtrado = df[
+        (df[col_fecha_acc] >= pd.Timestamp(fecha_desde_acc)) &
+        (df[col_fecha_acc] <= pd.Timestamp(fecha_hasta_acc))
+    ].copy()
+
+    # Calcular periodo año anterior
+    try:
+        fecha_desde_ant_acc = fecha_desde_acc.replace(year=fecha_desde_acc.year - 1)
+        fecha_hasta_ant_acc = fecha_hasta_acc.replace(year=fecha_hasta_acc.year - 1)
+    except ValueError:
+        fecha_desde_ant_acc = fecha_desde_acc.replace(year=fecha_desde_acc.year - 1, day=28)
+        fecha_hasta_ant_acc = fecha_hasta_acc.replace(year=fecha_hasta_acc.year - 1, day=28)
+
+    df_filtrado_ant = df[
+        (df[col_fecha_acc] >= pd.Timestamp(fecha_desde_ant_acc)) &
+        (df[col_fecha_acc] <= pd.Timestamp(fecha_hasta_ant_acc))
+    ].copy()
+
+    st.caption(f"📊 Comparando con: {fecha_desde_ant_acc.strftime('%d/%m/%Y')} - {fecha_hasta_ant_acc.strftime('%d/%m/%Y')}")
+    st.markdown("---")
+
     # Presupuestos enviados pendientes de respuesta (agrupados por Cod. Presupuesto)
-    df_enviados = df[df['Estado presupuesto'] == 'E'].copy()
+    df_enviados = df_filtrado[df_filtrado['Estado presupuesto'] == 'E'].copy()
     df_enviados['Fecha alta'] = pd.to_datetime(df_enviados['Fecha alta'], errors='coerce')
 
     # Agrupar por Cod. Presupuesto para tratar cada presupuesto como unidad
@@ -1055,8 +1123,8 @@ if pagina == "Acciones":
     urgentes = df_enviados_agrup[df_enviados_agrup['Dias_Sin_Respuesta'] >= DIAS_URGENTE].sort_values('Dias_Sin_Respuesta', ascending=False)
     seguimiento = df_enviados_agrup[(df_enviados_agrup['Dias_Sin_Respuesta'] >= DIAS_SEGUIMIENTO) & (df_enviados_agrup['Dias_Sin_Respuesta'] < DIAS_URGENTE)].sort_values('Dias_Sin_Respuesta', ascending=False)
 
-    # Clientes inactivos que antes compraban
-    df_aceptados = df[df['Estado presupuesto'].isin(['A', 'AP'])].copy()
+    # Clientes inactivos que antes compraban (dentro del rango filtrado)
+    df_aceptados = df_filtrado[df_filtrado['Estado presupuesto'].isin(['A', 'AP'])].copy()
     df_aceptados['Fecha alta'] = pd.to_datetime(df_aceptados['Fecha alta'], errors='coerce')
 
     if not df_aceptados.empty:
@@ -1071,8 +1139,8 @@ if pagina == "Acciones":
     else:
         inactivos = pd.DataFrame()
 
-    # Clientes con varios presupuestos recientes (oportunidades calientes)
-    df_reciente = df[df['Fecha alta'] >= (hoy - timedelta(days=30))].copy()
+    # Clientes con varios presupuestos recientes (oportunidades calientes dentro del rango)
+    df_reciente = df_filtrado[df_filtrado['Fecha alta'] >= (hoy - timedelta(days=30))].copy()
     if not df_reciente.empty:
         actividad_reciente = df_reciente.groupby('Cliente').agg({
             'Cod. Presupuesto': 'nunique',  # Contar presupuestos únicos, no líneas
@@ -1083,12 +1151,37 @@ if pagina == "Acciones":
     else:
         oportunidades = pd.DataFrame()
 
+    # --- MÉTRICAS AÑO ANTERIOR ---
+    # Calcular métricas del año anterior para comparar
+    if not df_filtrado_ant.empty:
+        df_env_ant = df_filtrado_ant[df_filtrado_ant['Estado presupuesto'] == 'E']
+        df_env_ant_agrup = df_env_ant.groupby('Cod. Presupuesto').first().reset_index() if not df_env_ant.empty else pd.DataFrame()
+        urgentes_ant = len(df_env_ant_agrup) if not df_env_ant_agrup.empty else 0
+
+        df_acept_ant = df_filtrado_ant[df_filtrado_ant['Estado presupuesto'].isin(['A', 'AP'])]
+        aceptados_ant = df_acept_ant['Cod. Presupuesto'].nunique() if not df_acept_ant.empty else 0
+        facturado_ant = df_acept_ant['Total importe'].sum() if not df_acept_ant.empty else 0
+    else:
+        urgentes_ant = aceptados_ant = facturado_ant = 0
+
+    # Métricas actuales
+    aceptados_actual = df_filtrado[df_filtrado['Estado presupuesto'].isin(['A', 'AP'])]['Cod. Presupuesto'].nunique()
+    facturado_actual = df_filtrado[df_filtrado['Estado presupuesto'].isin(['A', 'AP'])]['Total importe'].sum()
+
+    # Calcular deltas
+    delta_aceptados = ((aceptados_actual - aceptados_ant) / aceptados_ant * 100) if aceptados_ant > 0 else None
+    delta_facturado = ((facturado_actual - facturado_ant) / facturado_ant * 100) if facturado_ant > 0 else None
+
     # --- MÉTRICAS RESUMEN ---
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
     col1.metric("🔴 Urgentes", len(urgentes), help=f"Sin respuesta >{DIAS_URGENTE} días")
     col2.metric("🟡 Seguimiento", len(seguimiento), help=f"Sin respuesta {DIAS_SEGUIMIENTO}-{DIAS_URGENTE} días")
     col3.metric("🔵 Recuperar", len(inactivos), help=f"Clientes inactivos >{MESES_INACTIVO} meses")
     col4.metric("🟢 Oportunidades", len(oportunidades), help="Clientes con +2 presupuestos este mes")
+    col5.metric("✅ Aceptados", f"{aceptados_actual:,}",
+                delta=f"{delta_aceptados:+.1f}% vs año ant." if delta_aceptados else None)
+    col6.metric("💰 Facturado", f"{facturado_actual:,.0f}€",
+                delta=f"{delta_facturado:+.1f}% vs año ant." if delta_facturado else None)
 
     st.markdown("---")
 
@@ -1331,36 +1424,93 @@ elif pagina == "Dashboard":
     if segmento_sel != 'Todos':
         df_filtrado = df_filtrado[df_filtrado['Segmento_Cliente'] == segmento_sel]
 
+    # ========== CALCULAR PERIODO AÑO ANTERIOR ==========
+    if len(rango_fecha) == 2:
+        fecha_ini = rango_fecha[0]
+        fecha_fin = rango_fecha[1]
+        # Mismo periodo del año anterior
+        try:
+            fecha_ini_anterior = fecha_ini.replace(year=fecha_ini.year - 1)
+            fecha_fin_anterior = fecha_fin.replace(year=fecha_fin.year - 1)
+        except ValueError:  # Para 29 de febrero
+            fecha_ini_anterior = fecha_ini.replace(year=fecha_ini.year - 1, day=28)
+            fecha_fin_anterior = fecha_fin.replace(year=fecha_fin.year - 1, day=28)
+
+        # Filtrar datos del año anterior
+        df_anterior = df_con_clientes[
+            (df_con_clientes[col_fecha] >= pd.Timestamp(fecha_ini_anterior)) &
+            (df_con_clientes[col_fecha] <= pd.Timestamp(fecha_fin_anterior))
+        ].copy()
+
+        # Aplicar mismos filtros
+        if tipo_sel != 'Todos':
+            codigos_filtrar = [cod for cod, desc in opciones_tipo.items() if desc == tipo_sel]
+            df_anterior = df_anterior[df_anterior['Tipo Servicio'].isin(codigos_filtrar)]
+        if grupo_sel != 'Todos':
+            df_anterior = df_anterior[df_anterior['Grupo de clientes'] == grupo_sel]
+        if comercial_sel != 'Todos':
+            df_anterior = df_anterior[df_anterior['Atendido por'] == comercial_sel]
+        if segmento_sel != 'Todos':
+            df_anterior = df_anterior[df_anterior['Segmento_Cliente'] == segmento_sel]
+    else:
+        df_anterior = pd.DataFrame()
+
     st.markdown("---")
+
+    # Mostrar periodo de comparación
+    if len(rango_fecha) == 2 and not df_anterior.empty:
+        st.caption(f"📊 Comparando con el mismo periodo del año anterior: {fecha_ini_anterior.strftime('%d/%m/%Y')} - {fecha_fin_anterior.strftime('%d/%m/%Y')}")
 
     # ========== KPIs PRINCIPALES ==========
     kpis = obtener_kpis(df_filtrado)
+    kpis_anterior = obtener_kpis(df_anterior) if not df_anterior.empty else None
+
+    # Función para calcular delta
+    def calcular_delta(actual, anterior):
+        if anterior and anterior > 0:
+            return ((actual - anterior) / anterior) * 100
+        return None
 
     col1, col2, col3, col4, col5 = st.columns(5)
 
     with col1:
-        st.metric("Total Presupuestos", f"{kpis['total_presupuestos']:,}")
+        delta_presup = calcular_delta(kpis['total_presupuestos'], kpis_anterior['total_presupuestos'] if kpis_anterior else 0)
+        st.metric("Total Presupuestos", f"{kpis['total_presupuestos']:,}",
+                  delta=f"{delta_presup:+.1f}% vs año ant." if delta_presup is not None else None)
 
     with col2:
-        st.metric("Aceptados (A+AP)", f"{kpis['aceptados']:,}")
+        delta_acept = calcular_delta(kpis['aceptados'], kpis_anterior['aceptados'] if kpis_anterior else 0)
+        st.metric("Aceptados (A+AP)", f"{kpis['aceptados']:,}",
+                  delta=f"{delta_acept:+.1f}% vs año ant." if delta_acept is not None else None)
 
     with col3:
-        st.metric("Rechazados", f"{kpis['rechazados']:,}")
+        delta_rech = calcular_delta(kpis['rechazados'], kpis_anterior['rechazados'] if kpis_anterior else 0)
+        st.metric("Rechazados", f"{kpis['rechazados']:,}",
+                  delta=f"{delta_rech:+.1f}% vs año ant." if delta_rech is not None else None,
+                  delta_color="inverse")
 
     with col4:
-        st.metric("Pendientes", f"{kpis['pendientes']:,}")
+        delta_pend = calcular_delta(kpis['pendientes'], kpis_anterior['pendientes'] if kpis_anterior else 0)
+        st.metric("Pendientes", f"{kpis['pendientes']:,}",
+                  delta=f"{delta_pend:+.1f}% vs año ant." if delta_pend is not None else None,
+                  delta_color="off")
 
     with col5:
+        delta_tasa = kpis['tasa_conversion'] - (kpis_anterior['tasa_conversion'] if kpis_anterior else 0)
         st.metric("TASA CONVERSION", f"{kpis['tasa_conversion']:.1f}%",
-                  delta=f"{kpis['aceptados']:,} de {kpis['total_presupuestos']:,}")
+                  delta=f"{delta_tasa:+.1f}pp vs año ant." if kpis_anterior else None)
 
     col1, col2 = st.columns(2)
 
     with col1:
-        st.metric("Importe Facturado (A+AP)", f"{kpis['importe_aceptado']:,.0f} EUR")
+        delta_fact = calcular_delta(kpis['importe_aceptado'], kpis_anterior['importe_aceptado'] if kpis_anterior else 0)
+        st.metric("Importe Facturado (A+AP)", f"{kpis['importe_aceptado']:,.0f} EUR",
+                  delta=f"{delta_fact:+.1f}% vs año ant." if delta_fact is not None else None)
 
     with col2:
-        st.metric("Importe Total Presupuestado", f"{kpis['importe_total']:,.0f} EUR")
+        delta_total = calcular_delta(kpis['importe_total'], kpis_anterior['importe_total'] if kpis_anterior else 0)
+        st.metric("Importe Total Presupuestado", f"{kpis['importe_total']:,.0f} EUR",
+                  delta=f"{delta_total:+.1f}% vs año ant." if delta_total is not None else None)
 
     # KPIs de segmentos de clientes
     st.markdown("**Segmentos de clientes en el periodo:**")
@@ -1521,16 +1671,17 @@ elif pagina == "Dashboard":
         fig.update_yaxes(title="")
         st.plotly_chart(fig, use_container_width=True)
 
-    # Tendencia mensual
-    st.subheader("Tendencia Mensual")
+    # Tendencia mensual con comparativa año anterior
+    st.subheader("Tendencia Mensual (vs Año Anterior)")
+
+    # Datos año actual
     df_tendencia = df_filtrado[df_filtrado['Fecha alta'].notna()].copy()
     df_tendencia['Mes'] = df_tendencia['Fecha alta'].dt.to_period('M').astype(str)
+    df_tendencia['MesNum'] = df_tendencia['Fecha alta'].dt.month
 
-    # Presupuestos únicos por mes
-    presup_mes = df_tendencia.groupby('Mes')['Cod. Presupuesto'].nunique().reset_index()
-    presup_mes.columns = ['Mes', 'Total']
+    presup_mes = df_tendencia.groupby(['Mes', 'MesNum'])['Cod. Presupuesto'].nunique().reset_index()
+    presup_mes.columns = ['Mes', 'MesNum', 'Total']
 
-    # Presupuestos aceptados únicos por mes
     df_tendencia_acept = df_tendencia[df_tendencia['Estado presupuesto'].isin(['A', 'AP'])]
     acept_mes = df_tendencia_acept.groupby('Mes')['Cod. Presupuesto'].nunique().reset_index()
     acept_mes.columns = ['Mes', 'Aceptados']
@@ -1538,20 +1689,53 @@ elif pagina == "Dashboard":
     tendencia_mes = presup_mes.merge(acept_mes, on='Mes', how='left')
     tendencia_mes['Aceptados'] = tendencia_mes['Aceptados'].fillna(0).astype(int)
     tendencia_mes['Tasa'] = (tendencia_mes['Aceptados'] / tendencia_mes['Total'].replace(0, 1) * 100).round(1)
-
-    # Convertir meses a español
     tendencia_mes['Mes_ES'] = tendencia_mes['Mes'].apply(formato_mes_es)
 
+    # Datos año anterior
+    if not df_anterior.empty:
+        df_tend_ant = df_anterior[df_anterior['Fecha alta'].notna()].copy()
+        df_tend_ant['Mes'] = df_tend_ant['Fecha alta'].dt.to_period('M').astype(str)
+        df_tend_ant['MesNum'] = df_tend_ant['Fecha alta'].dt.month
+
+        presup_ant = df_tend_ant.groupby('MesNum')['Cod. Presupuesto'].nunique().reset_index()
+        presup_ant.columns = ['MesNum', 'Total_Anterior']
+
+        df_tend_ant_acept = df_tend_ant[df_tend_ant['Estado presupuesto'].isin(['A', 'AP'])]
+        acept_ant = df_tend_ant_acept.groupby('MesNum')['Cod. Presupuesto'].nunique().reset_index()
+        acept_ant.columns = ['MesNum', 'Aceptados_Anterior']
+
+        tendencia_ant = presup_ant.merge(acept_ant, on='MesNum', how='left')
+        tendencia_ant['Aceptados_Anterior'] = tendencia_ant['Aceptados_Anterior'].fillna(0).astype(int)
+
+        # Merge con datos actuales por número de mes
+        tendencia_mes = tendencia_mes.merge(tendencia_ant, on='MesNum', how='left')
+        tendencia_mes['Total_Anterior'] = tendencia_mes['Total_Anterior'].fillna(0).astype(int)
+        tendencia_mes['Aceptados_Anterior'] = tendencia_mes['Aceptados_Anterior'].fillna(0).astype(int)
+    else:
+        tendencia_mes['Total_Anterior'] = 0
+        tendencia_mes['Aceptados_Anterior'] = 0
+
     fig = go.Figure()
-    fig.add_trace(go.Bar(x=tendencia_mes['Mes_ES'], y=tendencia_mes['Total'], name='Total', marker_color='lightblue'))
-    fig.add_trace(go.Bar(x=tendencia_mes['Mes_ES'], y=tendencia_mes['Aceptados'], name='Aceptados', marker_color='green'))
-    fig.add_trace(go.Scatter(x=tendencia_mes['Mes_ES'], y=tendencia_mes['Tasa'], name='Tasa %', yaxis='y2', line=dict(color='red', width=3)))
+
+    # Barras año anterior (más claras, atrás)
+    fig.add_trace(go.Bar(x=tendencia_mes['Mes_ES'], y=tendencia_mes['Total_Anterior'],
+                         name='Total Año Ant.', marker_color='rgba(173, 216, 230, 0.5)', opacity=0.6))
+    fig.add_trace(go.Bar(x=tendencia_mes['Mes_ES'], y=tendencia_mes['Aceptados_Anterior'],
+                         name='Aceptados Año Ant.', marker_color='rgba(144, 238, 144, 0.5)', opacity=0.6))
+
+    # Barras año actual (colores sólidos)
+    fig.add_trace(go.Bar(x=tendencia_mes['Mes_ES'], y=tendencia_mes['Total'], name='Total Actual', marker_color='steelblue'))
+    fig.add_trace(go.Bar(x=tendencia_mes['Mes_ES'], y=tendencia_mes['Aceptados'], name='Aceptados Actual', marker_color='green'))
+
+    # Línea de tasa
+    fig.add_trace(go.Scatter(x=tendencia_mes['Mes_ES'], y=tendencia_mes['Tasa'], name='Tasa % Actual', yaxis='y2', line=dict(color='red', width=3)))
 
     fig.update_layout(
         barmode='group',
-        height=400,
+        height=450,
         yaxis=dict(title="Cantidad"),
-        yaxis2=dict(title="Tasa Conversion %", overlaying='y', side='right', range=[0, 100])
+        yaxis2=dict(title="Tasa Conversion %", overlaying='y', side='right', range=[0, 100]),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -3697,7 +3881,7 @@ elif pagina == "Analisis Conversion":
         campo_fecha = st.selectbox("Filtrar por", ["Fecha de alta", "Fecha de salida"], key="campo_fecha_conv")
 
     # Determinar columna de fecha según selección
-    col_fecha = 'Fecha alta' if campo_fecha == "Fecha de alta" else 'Fecha salida'
+    col_fecha = 'Fecha alta' if campo_fecha == "Fecha de alta" else 'Fecha Salida'
 
     # Calcular rango de fechas disponibles
     fechas_validas = df[col_fecha].dropna()
@@ -3722,13 +3906,25 @@ elif pagina == "Analisis Conversion":
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        # Obtener tipos con descripciones
+        # Obtener tipos con descripciones (siempre mostrar descripción, nunca código)
         tipos_guardados = obtener_tipos_servicio_db()
         codigos_unicos = sorted(df['Tipo Servicio'].dropna().unique().tolist())
         opciones_tipo = {'Todos': 'Todos'}
         for codigo in codigos_unicos:
             desc = tipos_guardados.get(codigo, {}).get('descripcion', '')
-            opciones_tipo[codigo] = normalizar_texto(desc) if desc else codigo
+            # Si no hay descripción, crear una legible a partir del código
+            if desc:
+                opciones_tipo[codigo] = normalizar_texto(desc)
+            else:
+                # Convertir código a descripción legible (ej: "ESC" -> "Escolar", "NAC" -> "Nacional")
+                descripciones_default = {
+                    'ESC': 'Escolar', 'NAC': 'Nacional', 'INT': 'Internacional',
+                    'URB': 'Urbano', 'TRF': 'Transfer', 'EXC': 'Excursion',
+                    'EVE': 'Evento', 'BOD': 'Boda', 'AER': 'Aeropuerto',
+                    'CRU': 'Crucero', 'SKI': 'Nieve/Ski', 'PLY': 'Playa',
+                    'EMP': 'Empresa', 'DEP': 'Deportivo', 'CUL': 'Cultural'
+                }
+                opciones_tipo[codigo] = descripciones_default.get(codigo.upper(), codigo.replace('_', ' ').title())
         descripciones_unicas = ['Todos'] + sorted(set([v for k, v in opciones_tipo.items() if k != 'Todos']))
         tipo_sel_conv = st.selectbox("Tipo de Servicio", descripciones_unicas, key="tipo_conv")
 
@@ -3758,8 +3954,32 @@ elif pagina == "Analisis Conversion":
     if fuente_sel != 'Todos':
         df_conv = df_conv[df_conv['Conocido por?'] == fuente_sel]
 
-    # Mostrar rango seleccionado
+    # ========== CALCULAR PERIODO AÑO ANTERIOR ==========
+    try:
+        fecha_desde_ant = fecha_desde.replace(year=fecha_desde.year - 1)
+        fecha_hasta_ant = fecha_hasta.replace(year=fecha_hasta.year - 1)
+    except ValueError:  # 29 febrero
+        fecha_desde_ant = fecha_desde.replace(year=fecha_desde.year - 1, day=28)
+        fecha_hasta_ant = fecha_hasta.replace(year=fecha_hasta.year - 1, day=28)
+
+    df_conv_anterior = df.copy()
+    if col_fecha in df_conv_anterior.columns:
+        df_conv_anterior = df_conv_anterior[df_conv_anterior[col_fecha].notna()]
+        df_conv_anterior = df_conv_anterior[(df_conv_anterior[col_fecha].dt.date >= fecha_desde_ant) & (df_conv_anterior[col_fecha].dt.date <= fecha_hasta_ant)]
+
+    # Aplicar mismos filtros al año anterior
+    if tipo_sel_conv != 'Todos':
+        codigos_filtrar = [cod for cod, desc in opciones_tipo.items() if desc == tipo_sel_conv]
+        df_conv_anterior = df_conv_anterior[df_conv_anterior['Tipo Servicio'].isin(codigos_filtrar)]
+    if grupo_sel_conv != 'Todos':
+        df_conv_anterior = df_conv_anterior[df_conv_anterior['Grupo de clientes'] == grupo_sel_conv]
+    if fuente_sel != 'Todos':
+        df_conv_anterior = df_conv_anterior[df_conv_anterior['Conocido por?'] == fuente_sel]
+
+    # Mostrar rango seleccionado con comparativa
     st.caption(f"📅 Mostrando datos por **{campo_fecha}** del {fecha_desde.strftime('%d/%m/%Y')} al {fecha_hasta.strftime('%d/%m/%Y')} ({len(df_conv)} registros)")
+    if not df_conv_anterior.empty:
+        st.caption(f"📊 Comparando con: {fecha_desde_ant.strftime('%d/%m/%Y')} - {fecha_hasta_ant.strftime('%d/%m/%Y')} ({len(df_conv_anterior)} registros año ant.)")
 
     st.markdown("---")
 
@@ -3820,21 +4040,39 @@ elif pagina == "Analisis Conversion":
 
     comerciales_stats['Ranking'] = comerciales_stats['Posicion'].apply(get_medalla)
 
-    # KPIs del periodo
+    # KPIs del periodo actual
     total_presupuestos = comerciales_stats['Presupuestos'].sum()
     total_aceptados = comerciales_stats['Aceptados'].sum()
     total_facturado = comerciales_stats['Importe Aceptado'].sum()
     tasa_global = (total_aceptados / total_presupuestos * 100) if total_presupuestos > 0 else 0
 
+    # KPIs del año anterior
+    if not df_conv_anterior.empty:
+        presup_ant = df_conv_anterior['Cod. Presupuesto'].nunique()
+        acept_ant = df_conv_anterior[df_conv_anterior['Estado presupuesto'].isin(['A', 'AP'])]['Cod. Presupuesto'].nunique()
+        fact_ant = df_conv_anterior[df_conv_anterior['Estado presupuesto'].isin(['A', 'AP'])]['Total importe'].sum()
+        tasa_ant = (acept_ant / presup_ant * 100) if presup_ant > 0 else 0
+
+        delta_presup = ((total_presupuestos - presup_ant) / presup_ant * 100) if presup_ant > 0 else None
+        delta_acept = ((total_aceptados - acept_ant) / acept_ant * 100) if acept_ant > 0 else None
+        delta_fact = ((total_facturado - fact_ant) / fact_ant * 100) if fact_ant > 0 else None
+        delta_tasa = tasa_global - tasa_ant
+    else:
+        delta_presup = delta_acept = delta_fact = delta_tasa = None
+
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.metric("Total Presupuestos", f"{total_presupuestos:,}")
+        st.metric("Total Presupuestos", f"{total_presupuestos:,}",
+                  delta=f"{delta_presup:+.1f}% vs año ant." if delta_presup is not None else None)
     with col2:
-        st.metric("Total Aceptados", f"{total_aceptados:,}")
+        st.metric("Total Aceptados", f"{total_aceptados:,}",
+                  delta=f"{delta_acept:+.1f}% vs año ant." if delta_acept is not None else None)
     with col3:
-        st.metric("Facturado", f"{total_facturado:,.0f} EUR")
+        st.metric("Facturado", f"{total_facturado:,.0f} EUR",
+                  delta=f"{delta_fact:+.1f}% vs año ant." if delta_fact is not None else None)
     with col4:
-        st.metric("Tasa Global", f"{tasa_global:.1f}%")
+        st.metric("Tasa Global", f"{tasa_global:.1f}%",
+                  delta=f"{delta_tasa:+.1f}pp vs año ant." if delta_tasa is not None else None)
 
     st.markdown("---")
 
@@ -5670,13 +5908,12 @@ elif pagina == "Calculadora":
                     }
 
                     resultado = calcular_tarifa(
-                        cliente=cliente,
-                        tipo_bus=bus_info['codigo'],
                         tipo_servicio=tipo_servicio_codigo,
-                        fecha=fecha_salida,
-                        kms=km,
+                        tipo_bus=bus_info['codigo'],
                         horas=horas,
-                        tipo_cliente_codigo=grupo_cliente_sel
+                        km=km,
+                        cliente=cliente,
+                        fecha=fecha_salida
                     )
 
                     if resultado:
@@ -6708,6 +6945,68 @@ elif pagina == "Configuracion":
                 st.text(f"{codigo}: {cantidad:,} presupuestos")
         else:
             st.success("Todos los codigos tienen descripcion")
+
+    # ============================================
+    # SECCIÓN: CLIENTES DESACTIVADOS
+    # ============================================
+    st.markdown("---")
+    st.subheader("Clientes Desactivados")
+    st.caption("Los clientes desactivados no aparecen en ninguna parte de la aplicacion (estadisticas, calculos, listas, etc.)")
+
+    # Cargar datos originales sin filtrar para poder ver todos los clientes
+    df_todos_clientes = cargar_datos()
+    todos_los_clientes = sorted(df_todos_clientes['Cliente'].dropna().unique().tolist())
+    clientes_desactivados_actual = obtener_clientes_desactivados()
+
+    col_desact1, col_desact2 = st.columns(2)
+
+    with col_desact1:
+        st.write("**Desactivar clientes:**")
+        # Filtrar los que ya están desactivados
+        clientes_activos = [c for c in todos_los_clientes if c not in clientes_desactivados_actual]
+        clientes_a_desactivar = st.multiselect(
+            "Selecciona clientes",
+            options=clientes_activos,
+            key="sel_desactivar_clientes",
+            placeholder="Busca y selecciona clientes..."
+        )
+        motivo_desactivacion = st.text_input("Motivo (opcional)", key="motivo_desact")
+
+        if st.button("Desactivar seleccionados", type="primary", disabled=len(clientes_a_desactivar) == 0):
+            errores = 0
+            for cliente in clientes_a_desactivar:
+                if not desactivar_cliente(cliente, motivo_desactivacion):
+                    errores += 1
+            if errores == 0:
+                st.success(f"{len(clientes_a_desactivar)} cliente(s) desactivado(s)")
+            else:
+                st.warning(f"Desactivados {len(clientes_a_desactivar) - errores}, errores: {errores}")
+            st.rerun()
+
+    with col_desact2:
+        st.write(f"**Clientes desactivados ({len(clientes_desactivados_actual)}):**")
+        if clientes_desactivados_actual:
+            # Opción para reactivar todos
+            if st.button("Reactivar todos", type="secondary"):
+                for cliente in list(clientes_desactivados_actual.keys()):
+                    reactivar_cliente(cliente)
+                st.success("Todos los clientes reactivados")
+                st.rerun()
+
+            st.markdown("---")
+            for cliente, datos in sorted(clientes_desactivados_actual.items()):
+                c1, c2, c3 = st.columns([3, 2, 1])
+                with c1:
+                    st.write(f"**{cliente}**")
+                with c2:
+                    fecha_str = datos.get('fecha', '')[:10] if datos.get('fecha') else ''
+                    st.caption(f"{datos.get('motivo', '-')} | {fecha_str}")
+                with c3:
+                    if st.button("X", key=f"react_{cliente}", help="Reactivar"):
+                        reactivar_cliente(cliente)
+                        st.rerun()
+        else:
+            st.info("No hay clientes desactivados")
 
 # ============================================
 # PÁGINA: ADMIN (Solo para administradores)
