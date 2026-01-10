@@ -3231,9 +3231,22 @@ elif pagina == "Pipeline":
     if df_todos is not None and not df_todos.empty:
         # Convertir fechas
         df_todos['Fecha alta'] = pd.to_datetime(df_todos['Fecha alta'], errors='coerce')
-        fecha_min = df_todos['Fecha alta'].min().date() if df_todos['Fecha alta'].notna().any() else datetime.now().date()
-        fecha_max = df_todos['Fecha alta'].max().date() if df_todos['Fecha alta'].notna().any() else datetime.now().date()
+        df_todos['Fecha Salida'] = pd.to_datetime(df_todos['Fecha Salida'], errors='coerce')
         hoy = datetime.now().date()
+
+        # Selector de tipo de fecha
+        col_tipo_fecha, col_periodo = st.columns([1, 3])
+        with col_tipo_fecha:
+            tipo_fecha_pipeline = st.radio(
+                "Filtrar por",
+                ["Fecha alta", "Fecha Salida"],
+                horizontal=True,
+                key="tipo_fecha_pipeline"
+            )
+
+        col_fecha_pipeline = tipo_fecha_pipeline
+        fecha_min = df_todos[col_fecha_pipeline].min().date() if df_todos[col_fecha_pipeline].notna().any() else hoy
+        fecha_max = df_todos[col_fecha_pipeline].max().date() if df_todos[col_fecha_pipeline].notna().any() else hoy
 
         # Filtros rápidos de fecha
         st.markdown("**📅 Período:**")
@@ -3340,6 +3353,7 @@ elif pagina == "Pipeline":
         df_presupuestos = df_todos.groupby('Cod. Presupuesto').agg({
             'Cliente': 'first',
             'Fecha alta': 'first',
+            'Fecha Salida': 'first',
             'Estado presupuesto': 'first',
             'Total importe': 'sum',  # Sumar todas las líneas del presupuesto
             'Tipo Servicio': 'first',
@@ -3351,8 +3365,8 @@ elif pagina == "Pipeline":
 
         if len(rango_fechas) == 2:
             df_pipeline = df_pipeline[
-                (df_pipeline['Fecha alta'].dt.date >= rango_fechas[0]) &
-                (df_pipeline['Fecha alta'].dt.date <= rango_fechas[1])
+                (df_pipeline[col_fecha_pipeline].dt.date >= rango_fechas[0]) &
+                (df_pipeline[col_fecha_pipeline].dt.date <= rango_fechas[1])
             ]
 
         if grupo_sel != 'Todos':
