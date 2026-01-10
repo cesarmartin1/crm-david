@@ -5966,7 +5966,7 @@ elif pagina == "Calculadora":
             origen_coords = st.session_state.get('calc_origen_coords', '')
             destino_coords = st.session_state.get('calc_destino_coords', '')
             paradas_str = str([(p.get('coords', '')) for p in st.session_state.get('calc_paradas', [])])
-            estado_actual = f"{modo_calculo}_{fecha_salida}_{hora_salida}_{horas_totales_input}_{bus_info['codigo']}_{tipo_servicio_codigo}_{num_vehiculos}_{grupo_cliente_sel}_{incluir_pos_ida}_{incluir_pos_vuelta}_{tiempo_limpieza}_{peajes_manual}_{dietas_manual}_{hoteles_manual}_{otros_manual}_{origen_coords}_{destino_coords}_{paradas_str}"
+            estado_actual = f"{modo_calculo}_{fecha_salida}_{hora_salida}_{fecha_llegada}_{hora_llegada}_{horas_totales_input}_{bus_info['codigo']}_{tipo_servicio_codigo}_{num_vehiculos}_{grupo_cliente_sel}_{cliente}_{incluir_pos_ida}_{incluir_pos_vuelta}_{tiempo_limpieza}_{peajes_manual}_{dietas_manual}_{hoteles_manual}_{otros_manual}_{origen_coords}_{destino_coords}_{paradas_str}"
             estado_anterior = st.session_state.get('_estado_calc', '')
 
             if estado_actual != estado_anterior:
