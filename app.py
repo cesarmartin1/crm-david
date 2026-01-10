@@ -542,7 +542,6 @@ def geocodificar_direccion(direccion, google_api_key=None):
             params = {
                 'query': direccion,
                 'key': google_api_key,
-                'region': 'es',
                 'language': 'es'
             }
             response = requests.get(url, params=params, timeout=10)
@@ -556,10 +555,7 @@ def geocodificar_direccion(direccion, google_api_key=None):
                     return (lat, lon, display_name)
 
         # Fallback a Nominatim si no hay Google API o falla
-        if 'españa' not in direccion.lower() and 'spain' not in direccion.lower():
-            direccion_buscar = f"{direccion}, España"
-        else:
-            direccion_buscar = direccion
+        direccion_buscar = direccion
 
         url = "https://nominatim.openstreetmap.org/search"
         params = {
