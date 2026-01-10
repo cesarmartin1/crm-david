@@ -6571,19 +6571,38 @@ elif pagina == "Tarifas":
 
     # ========== TAB MATRIZ TARIFAS ==========
     with tab_matriz:
-        st.markdown("### Matriz de Tarifas por Servicio y Bus")
-        st.caption("Vista rápida de todas las tarifas. Haz clic en una celda para editarla.")
+        st.markdown("### Matriz de Tarifas por Tipo de Servicio")
+        st.caption("Tarifas agrupadas por descripción. Una tarifa aplica a todos los códigos con la misma descripción.")
 
         tipos_bus_matriz = obtener_tipos_bus()
         tipos_srv_matriz = obtener_tipos_servicio_db()
         tarifas_srv_matriz = obtener_tarifas_servicio()
 
         if tipos_bus_matriz and tipos_srv_matriz:
+            # Agrupar servicios por descripción normalizada
+            from collections import defaultdict
+            servicios_por_desc = defaultdict(list)
+            for codigo, info in tipos_srv_matriz.items():
+                desc = info.get('descripcion', codigo).strip().title()
+                servicios_por_desc[desc].append(codigo)
+
+            # Ordenar descripciones alfabéticamente
+            descripciones_ordenadas = sorted(servicios_por_desc.keys())
+
             # Crear diccionario de tarifas para acceso rápido
             tarifas_dict = {}
             for t in tarifas_srv_matriz:
                 key = (t['tipo_servicio'], t['tipo_bus'])
                 tarifas_dict[key] = t
+
+            # Función para obtener tarifa de una descripción (busca en cualquier código asociado)
+            def obtener_tarifa_descripcion(desc, tipo_bus):
+                codigos = servicios_por_desc.get(desc, [])
+                for codigo in codigos:
+                    tarifa = tarifas_dict.get((codigo, tipo_bus))
+                    if tarifa:
+                        return tarifa
+                return None
 
             # Ordenar buses por capacidad
             buses_ordenados = sorted(tipos_bus_matriz, key=lambda x: x.get('capacidad', 0) or 0)
@@ -6591,23 +6610,26 @@ elif pagina == "Tarifas":
             nombres_bus = [f"{b['nombre']}" for b in buses_ordenados]
 
             # Crear matriz visual con HTML
-            st.markdown("#### Vista General")
+            st.markdown(f"#### Vista General ({len(descripciones_ordenadas)} tipos de servicio)")
 
             # Header de la tabla
             header_html = "<table style='width:100%; border-collapse: collapse; font-size: 13px;'>"
-            header_html += "<tr style='background: #f0f2f6;'><th style='padding: 10px; border: 1px solid #ddd; text-align: left;'>Servicio</th>"
+            header_html += "<tr style='background: #f0f2f6;'><th style='padding: 10px; border: 1px solid #ddd; text-align: left;'>Tipo de Servicio</th>"
             for nombre in nombres_bus:
                 header_html += f"<th style='padding: 10px; border: 1px solid #ddd; text-align: center; min-width: 100px;'>{nombre}</th>"
             header_html += "</tr>"
 
-            # Filas de la tabla
+            # Filas de la tabla - una por descripción
             rows_html = ""
-            for codigo_srv, info_srv in sorted(tipos_srv_matriz.items()):
-                desc_srv = info_srv.get('descripcion', codigo_srv)[:25]
-                rows_html += f"<tr><td style='padding: 8px 10px; border: 1px solid #ddd; font-weight: 500;'>{desc_srv}</td>"
+            for desc in descripciones_ordenadas:
+                codigos_asociados = servicios_por_desc[desc]
+                num_codigos = len(codigos_asociados)
+                tooltip = f"Códigos: {', '.join(codigos_asociados[:5])}{'...' if num_codigos > 5 else ''}"
+
+                rows_html += f"<tr><td style='padding: 8px 10px; border: 1px solid #ddd; font-weight: 500;' title='{tooltip}'>{desc} <span style='font-size:10px;color:#888;'>({num_codigos})</span></td>"
 
                 for codigo_bus in codigos_bus:
-                    tarifa = tarifas_dict.get((codigo_srv, codigo_bus))
+                    tarifa = obtener_tarifa_descripcion(desc, codigo_bus)
                     if tarifa:
                         hora = tarifa.get('precio_hora', 0) or 0
                         km = tarifa.get('precio_km', 0) or 0
@@ -6626,6 +6648,7 @@ elif pagina == "Tarifas":
             <div style='margin-top: 10px; font-size: 12px; color: #666;'>
                 <span style='background: #e8f5e9; padding: 2px 8px; border-radius: 4px; margin-right: 10px;'>✓ Tarifa definida</span>
                 <span style='color: #ccc;'>— Sin tarifa (usa precio base del bus)</span>
+                <span style='margin-left: 15px;'>(N) = Número de códigos agrupados</span>
             </div>
             """, unsafe_allow_html=True)
 
@@ -6637,11 +6660,10 @@ elif pagina == "Tarifas":
             col_form1, col_form2 = st.columns(2)
 
             with col_form1:
-                # Selector de servicio con descripción
-                opciones_srv = [f"{k} - {v.get('descripcion', k)[:30]}" for k, v in tipos_srv_matriz.items()]
-                srv_sel_idx = st.selectbox("Tipo de Servicio", range(len(opciones_srv)),
-                                           format_func=lambda i: opciones_srv[i], key="matriz_srv_sel")
-                codigo_srv_sel = list(tipos_srv_matriz.keys())[srv_sel_idx] if opciones_srv else None
+                # Selector de servicio por DESCRIPCIÓN
+                desc_sel = st.selectbox("Tipo de Servicio", descripciones_ordenadas, key="matriz_desc_sel")
+                codigos_desc_sel = servicios_por_desc.get(desc_sel, [])
+                st.caption(f"Aplica a {len(codigos_desc_sel)} códigos: {', '.join(codigos_desc_sel[:6])}{'...' if len(codigos_desc_sel) > 6 else ''}")
 
                 # Selector de bus con nombre
                 opciones_bus = [f"{b['nombre']} ({b['capacidad']} plz)" for b in buses_ordenados]
@@ -6651,10 +6673,10 @@ elif pagina == "Tarifas":
 
             with col_form2:
                 # Mostrar tarifa actual si existe
-                tarifa_actual = tarifas_dict.get((codigo_srv_sel, codigo_bus_sel)) if codigo_srv_sel and codigo_bus_sel else None
+                tarifa_actual = obtener_tarifa_descripcion(desc_sel, codigo_bus_sel) if desc_sel and codigo_bus_sel else None
 
                 if tarifa_actual:
-                    st.info(f"📝 Editando tarifa existente (ID: {tarifa_actual['id']})")
+                    st.info(f"📝 Editando tarifa existente")
                     default_base = tarifa_actual.get('precio_base', 0) or 0
                     default_hora = tarifa_actual.get('precio_hora', 0) or 0
                     default_km = tarifa_actual.get('precio_km', 0) or 0
@@ -6675,17 +6697,26 @@ elif pagina == "Tarifas":
             col_btn1, col_btn2, col_btn3 = st.columns([2, 1, 1])
             with col_btn1:
                 if st.button("💾 Guardar Tarifa", type="primary", key="btn_matriz_save", use_container_width=True):
-                    if codigo_srv_sel and codigo_bus_sel:
-                        # Si existe, eliminar primero
-                        if tarifa_actual:
-                            eliminar_tarifa_servicio(tarifa_actual['id'])
-                        guardar_tarifa_servicio(codigo_srv_sel, codigo_bus_sel, new_base, new_hora, new_km)
-                        st.success("✅ Tarifa guardada")
+                    if desc_sel and codigo_bus_sel:
+                        # Guardar para TODOS los códigos con esta descripción
+                        guardados = 0
+                        for codigo in codigos_desc_sel:
+                            # Eliminar tarifa existente si hay
+                            existente = tarifas_dict.get((codigo, codigo_bus_sel))
+                            if existente:
+                                eliminar_tarifa_servicio(existente['id'])
+                            guardar_tarifa_servicio(codigo, codigo_bus_sel, new_base, new_hora, new_km)
+                            guardados += 1
+                        st.success(f"✅ Tarifa guardada para {guardados} códigos de '{desc_sel}'")
                         st.rerun()
             with col_btn2:
                 if tarifa_actual:
                     if st.button("🗑️ Eliminar", key="btn_matriz_del"):
-                        eliminar_tarifa_servicio(tarifa_actual['id'])
+                        # Eliminar de todos los códigos
+                        for codigo in codigos_desc_sel:
+                            existente = tarifas_dict.get((codigo, codigo_bus_sel))
+                            if existente:
+                                eliminar_tarifa_servicio(existente['id'])
                         st.rerun()
             with col_btn3:
                 pass
@@ -6693,32 +6724,36 @@ elif pagina == "Tarifas":
             # Carga rápida de tarifas
             st.markdown("---")
             with st.expander("📥 Carga rápida de tarifas"):
-                st.caption("Añade múltiples tarifas a la vez seleccionando un bus y definiendo precios para varios servicios")
+                st.caption("Añade múltiples tarifas a la vez seleccionando un bus y definiendo precios para cada tipo de servicio")
 
                 bus_carga = st.selectbox("Bus para carga rápida", opciones_bus, key="carga_bus")
                 idx_bus_carga = opciones_bus.index(bus_carga)
                 codigo_bus_carga = codigos_bus[idx_bus_carga]
 
-                st.markdown("**Precios por servicio:**")
+                st.markdown("**Precios por tipo de servicio:**")
                 precios_carga = {}
                 cols = st.columns(3)
-                for i, (codigo_srv, info) in enumerate(tipos_srv_matriz.items()):
+                for i, desc in enumerate(descripciones_ordenadas):
                     with cols[i % 3]:
-                        desc = info.get('descripcion', codigo_srv)[:20]
-                        precio = st.number_input(f"{desc}", min_value=0.0, value=0.0, step=5.0,
-                                                key=f"carga_{codigo_srv}", help=f"€/hora para {codigo_srv}")
+                        # Obtener tarifa actual si existe
+                        tarifa_existente = obtener_tarifa_descripcion(desc, codigo_bus_carga)
+                        valor_actual = tarifa_existente.get('precio_hora', 0) if tarifa_existente else 0
+
+                        precio = st.number_input(f"{desc}", min_value=0.0, value=float(valor_actual), step=5.0,
+                                                key=f"carga_{desc}", help=f"€/hora para {desc}")
                         if precio > 0:
-                            precios_carga[codigo_srv] = precio
+                            precios_carga[desc] = precio
 
                 if st.button("💾 Guardar Todas", type="primary", key="btn_carga_todas"):
                     guardados = 0
-                    for codigo_srv, precio_hora in precios_carga.items():
-                        # Buscar si existe
-                        existente = tarifas_dict.get((codigo_srv, codigo_bus_carga))
-                        if existente:
-                            eliminar_tarifa_servicio(existente['id'])
-                        guardar_tarifa_servicio(codigo_srv, codigo_bus_carga, 0, precio_hora, 1.20)
-                        guardados += 1
+                    for desc, precio_hora in precios_carga.items():
+                        codigos = servicios_por_desc.get(desc, [])
+                        for codigo in codigos:
+                            existente = tarifas_dict.get((codigo, codigo_bus_carga))
+                            if existente:
+                                eliminar_tarifa_servicio(existente['id'])
+                            guardar_tarifa_servicio(codigo, codigo_bus_carga, 0, precio_hora, 1.20)
+                            guardados += 1
                     if guardados > 0:
                         st.success(f"✅ {guardados} tarifas guardadas")
                         st.rerun()
