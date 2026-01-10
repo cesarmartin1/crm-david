@@ -590,14 +590,32 @@ def eliminar_tarifa_cliente(cliente: str, tipo_bus: str, tipo_servicio: str):
 def calcular_tarifa(tipo_servicio: str, tipo_bus: str, horas: float, km: float,
                     cliente: str = None, fecha: str = None):
     """Calcula la tarifa para un servicio."""
+    origen_tarifa = 'base'
+
     # Buscar tarifa de cliente primero
     tarifa = None
     if cliente:
         tarifa = obtener_tarifa_cliente_especifica(cliente, tipo_bus, tipo_servicio)
+        if tarifa:
+            origen_tarifa = 'cliente_personalizado'
 
-    # Si no hay tarifa de cliente, usar tarifa estándar
-    if not tarifa:
+    # Si no hay tarifa de cliente, usar tarifa estándar por servicio
+    if not tarifa and tipo_servicio:
         tarifa = obtener_tarifa_servicio(tipo_servicio, tipo_bus)
+        if tarifa:
+            origen_tarifa = 'tarifa_servicio'
+
+    # Si no hay tarifa específica, usar tarifa base del tipo de bus
+    if not tarifa:
+        tipos_bus = obtener_tipos_bus()
+        bus_info = next((b for b in tipos_bus if b['codigo'] == tipo_bus), None)
+        if bus_info:
+            tarifa = {
+                'precio_hora': bus_info.get('precio_base_hora', 30),
+                'precio_km': bus_info.get('precio_base_km', 0.85),
+                'precio_minimo': 0
+            }
+            origen_tarifa = 'tipo_bus'
 
     if not tarifa:
         return None
@@ -623,7 +641,8 @@ def calcular_tarifa(tipo_servicio: str, tipo_bus: str, horas: float, km: float,
         'precio_hora': precio_hora,
         'precio_km': precio_km,
         'precio_minimo': precio_minimo,
-        'es_tarifa_cliente': cliente and obtener_tarifa_cliente_especifica(cliente, tipo_bus, tipo_servicio) is not None
+        'origen': origen_tarifa,
+        'es_tarifa_cliente': origen_tarifa == 'cliente_personalizado'
     }
 
 

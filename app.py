@@ -3323,11 +3323,15 @@ elif pagina == "Pipeline":
             grupo_sel = st.selectbox("Grupo cliente", grupos, index=grupo_idx, key="sel_grupo_pipeline")
 
         with col_filtro3:
-            # Filtro por tipo de servicio
-            tipos = ['Todos'] + sorted(df_todos['Tipo Servicio'].dropna().unique().tolist())
-            tipo_default = st.session_state.get('pipeline_tipo', 'Todos')
-            tipo_idx = tipos.index(tipo_default) if tipo_default in tipos else 0
-            tipo_sel = st.selectbox("Tipo servicio", tipos, index=tipo_idx, key="sel_tipo_pipeline")
+            # Filtro por tipo de servicio (mostrar descripciones)
+            tipos_guardados_pip = obtener_tipos_servicio_db()
+            codigos_unicos_pip = sorted(df_todos['Tipo Servicio'].dropna().unique().tolist())
+            opciones_tipo_pip = {'Todos': 'Todos'}
+            for codigo in codigos_unicos_pip:
+                desc = tipos_guardados_pip.get(codigo, {}).get('descripcion', '')
+                opciones_tipo_pip[codigo] = normalizar_texto(desc) if desc else codigo
+            descripciones_pip = ['Todos'] + sorted(set([v for k, v in opciones_tipo_pip.items() if k != 'Todos']))
+            tipo_sel_desc = st.selectbox("Tipo servicio", descripciones_pip, key="sel_tipo_pipeline")
 
         with col_filtro4:
             # Filtro por importe mínimo
@@ -3372,8 +3376,10 @@ elif pagina == "Pipeline":
         if grupo_sel != 'Todos':
             df_pipeline = df_pipeline[df_pipeline['Grupo de clientes'] == grupo_sel]
 
-        if tipo_sel != 'Todos':
-            df_pipeline = df_pipeline[df_pipeline['Tipo Servicio'] == tipo_sel]
+        if tipo_sel_desc != 'Todos':
+            # Filtrar por descripción: encontrar códigos que tienen esa descripción
+            codigos_filtrar_pip = [cod for cod, desc in opciones_tipo_pip.items() if desc == tipo_sel_desc]
+            df_pipeline = df_pipeline[df_pipeline['Tipo Servicio'].isin(codigos_filtrar_pip)]
 
         if importe_min > 0:
             df_pipeline = df_pipeline[df_pipeline['Total importe'] >= importe_min]
