@@ -1119,10 +1119,10 @@ if pagina == "Acciones":
     with col_fecha_hasta:
         fecha_hasta_acc = st.date_input("Hasta", value=fecha_default_hasta_acc, min_value=fecha_min_acc, max_value=fecha_max_acc, key="fecha_hasta_acc")
 
-    # Aplicar filtro de fechas al DataFrame
+    # Aplicar filtro de fechas al DataFrame (incluir día completo hasta las 23:59:59)
     df_filtrado = df[
         (df[col_fecha_acc] >= pd.Timestamp(fecha_desde_acc)) &
-        (df[col_fecha_acc] <= pd.Timestamp(fecha_hasta_acc))
+        (df[col_fecha_acc] < pd.Timestamp(fecha_hasta_acc) + pd.Timedelta(days=1))
     ].copy()
 
     # Calcular periodo año anterior
@@ -1135,7 +1135,7 @@ if pagina == "Acciones":
 
     df_filtrado_ant = df[
         (df[col_fecha_acc] >= pd.Timestamp(fecha_desde_ant_acc)) &
-        (df[col_fecha_acc] <= pd.Timestamp(fecha_hasta_ant_acc))
+        (df[col_fecha_acc] < pd.Timestamp(fecha_hasta_ant_acc) + pd.Timedelta(days=1))
     ].copy()
 
     st.caption(f"📊 Comparando con: {fecha_desde_ant_acc.strftime('%d/%m/%Y')} - {fecha_hasta_ant_acc.strftime('%d/%m/%Y')}")
@@ -1442,7 +1442,7 @@ elif pagina == "Dashboard":
     if len(rango_fecha) == 2:
         df_filtrado = df_filtrado[
             (df_filtrado[col_fecha] >= pd.Timestamp(rango_fecha[0])) &
-            (df_filtrado[col_fecha] <= pd.Timestamp(rango_fecha[1]))
+            (df_filtrado[col_fecha] < pd.Timestamp(rango_fecha[1]) + pd.Timedelta(days=1))
         ]
 
     if tipo_sel != 'Todos':
@@ -1474,7 +1474,7 @@ elif pagina == "Dashboard":
         # Filtrar datos del año anterior
         df_anterior = df_con_clientes[
             (df_con_clientes[col_fecha] >= pd.Timestamp(fecha_ini_anterior)) &
-            (df_con_clientes[col_fecha] <= pd.Timestamp(fecha_fin_anterior))
+            (df_con_clientes[col_fecha] < pd.Timestamp(fecha_fin_anterior) + pd.Timedelta(days=1))
         ].copy()
 
         # Aplicar mismos filtros
