@@ -5881,6 +5881,11 @@ elif pagina == "Calculadora":
                             st.rerun()
 
             # Añadir nueva parada - dinámico
+            # Limpiar input si se marcó para limpiar
+            if st.session_state.get('_limpiar_input_parada'):
+                st.session_state._limpiar_input_parada = False
+                st.session_state.pop('input_parada_new', None)
+
             nueva_parada_txt = st.text_input("+ Añadir parada", placeholder="Escribe una parada y pulsa Enter...", key="input_parada_new", label_visibility="visible")
 
             # Geocodificar y añadir automáticamente cuando hay texto nuevo
@@ -5889,8 +5894,7 @@ elif pagina == "Calculadora":
                 if geo:
                     st.session_state.calc_paradas.append({'texto': nueva_parada_txt, 'dir': geo[2], 'coords': (geo[0], geo[1])})
                     st.session_state._ultima_parada_añadida = nueva_parada_txt
-                    # Limpiar el input para la siguiente parada
-                    st.session_state.input_parada_new = ""
+                    st.session_state._limpiar_input_parada = True
                     st.rerun()
                 else:
                     st.caption("⚠️ No se encontró la dirección")
