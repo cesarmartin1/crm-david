@@ -2132,6 +2132,10 @@ elif pagina == "Analisis Mercado":
     st.title("📊 Análisis de Mercado")
     st.caption("Seguimiento de competencia y posicionamiento de precios")
 
+    # Obtener tipos de servicio con descripciones
+    tipos_srv_mercado = obtener_tipos_servicio_db()
+    tipos_srv_desc_mercado = ['Todos'] + sorted([normalizar_texto(v.get('descripcion', k)) for k, v in tipos_srv_mercado.items() if v.get('descripcion')])
+
     # Placeholder de carga inicial
     loading_placeholder = st.empty()
 
@@ -2509,10 +2513,7 @@ elif pagina == "Analisis Mercado":
 
                         col_s1, col_s2 = st.columns(2)
                         with col_s1:
-                            tipo_serv = st.selectbox("📋 Servicio*", [
-                                "TRANSFER", "EXCURSION", "ESCOLAR", "DEPORTIVO",
-                                "CONGRESO", "CIRCUITO", "DISCRECIONAL", "OTRO"
-                            ])
+                            tipo_serv = st.selectbox("📋 Servicio*", tipos_srv_desc_mercado[1:] + ["Otro"] if len(tipos_srv_desc_mercado) > 1 else ["Transfer", "Otro"])
                         with col_s2:
                             tipo_veh = st.selectbox("🚌 Vehículo", list(FACTOR_VEHICULO_NORM.keys()))
 
@@ -2563,7 +2564,7 @@ elif pagina == "Analisis Mercado":
                 with col_f1:
                     filtro_comp = st.selectbox("Competidor", ["Todos"] + [c['nombre'] for c in competidores], key="filtro_comp_cot")
                 with col_f2:
-                    filtro_tipo = st.selectbox("Tipo", ["Todos", "TRANSFER", "EXCURSION", "ESCOLAR", "DEPORTIVO", "CONGRESO", "CIRCUITO", "DISCRECIONAL"], key="filtro_tipo_cot")
+                    filtro_tipo = st.selectbox("Tipo", tipos_srv_desc_mercado, key="filtro_tipo_cot")
                 with col_f3:
                     orden = st.selectbox("Ordenar por", ["Fecha ↓", "Precio ↓", "Precio ↑", "Competidor"], key="orden_cot")
 
@@ -2754,7 +2755,7 @@ elif pagina == "Analisis Mercado":
 
             col_c1, col_c2, col_c3, col_c4 = st.columns(4)
             with col_c1:
-                tipo_comp = st.selectbox("Tipo de servicio", ["TRANSFER", "EXCURSION", "ESCOLAR", "DEPORTIVO", "CONGRESO", "CIRCUITO", "DISCRECIONAL"])
+                tipo_comp = st.selectbox("Tipo de servicio", tipos_srv_desc_mercado[1:] if len(tipos_srv_desc_mercado) > 1 else ["Transfer"])
             with col_c2:
                 veh_comp = st.selectbox("Tipo de vehículo", list(FACTOR_VEHICULO_NORM.keys()), key="veh_comparador")
             with col_c3:
@@ -3867,6 +3868,17 @@ elif pagina == "Campanas Segmentadas":
     st.title("🎯 Campañas Segmentadas")
     st.markdown("---")
 
+    # Tipos de servicio con descripciones
+    tipos_srv_camp = obtener_tipos_servicio_db()
+    codigos_srv_camp = sorted(df['Tipo Servicio'].dropna().unique().tolist())
+    desc_a_codigo_camp = {}
+    tipos_srv_lista_camp = ['Todos']
+    for codigo in codigos_srv_camp:
+        desc = tipos_srv_camp.get(codigo, {}).get('descripcion', '')
+        desc_normalizada = normalizar_texto(desc) if desc else codigo
+        tipos_srv_lista_camp.append(desc_normalizada)
+        desc_a_codigo_camp[desc_normalizada] = codigo
+
     st.subheader("Configurar Segmento")
 
     # Filtros de segmentación
@@ -3877,16 +3889,17 @@ elif pagina == "Campanas Segmentadas":
         importe_min = st.number_input("Importe Mínimo Histórico (€)", min_value=0, value=0, step=100)
 
     with col2:
-        tipo_servicio_seg = st.selectbox("Tipo de Servicio", obtener_tipos_servicio(df))
+        tipo_servicio_seg_desc = st.selectbox("Tipo de Servicio", tipos_srv_lista_camp)
         importe_max = st.number_input("Importe Máximo Histórico (€)", min_value=0, value=0, step=100)
 
     importe_max = importe_max if importe_max > 0 else None
+    tipo_servicio_seg = desc_a_codigo_camp.get(tipo_servicio_seg_desc) if tipo_servicio_seg_desc != 'Todos' else None
 
     # Obtener segmento
     segmento = obtener_segmentacion(
         df,
         grupo=grupo_seg if grupo_seg != 'Todos' else None,
-        tipo_servicio=tipo_servicio_seg if tipo_servicio_seg != 'Todos' else None,
+        tipo_servicio=tipo_servicio_seg,
         importe_min=importe_min if importe_min > 0 else None,
         importe_max=importe_max
     )
@@ -5655,8 +5668,17 @@ elif pagina == "Calculadora":
     # Obtener datos necesarios
     tipos_bus = obtener_tipos_bus()
     tipos_bus_dict = {f"{b['nombre']} ({b['capacidad']} plz)": b for b in tipos_bus}
-    # Tipos de servicio (normalizados desde los datos)
-    tipos_servicio_lista = obtener_tipos_servicio(df)  # Ya incluye 'Todos' al inicio
+    # Tipos de servicio con descripciones
+    tipos_srv_calc = obtener_tipos_servicio_db()
+    codigos_srv_calc = sorted(df['Tipo Servicio'].dropna().unique().tolist())
+    # Crear mapeo descripción -> código
+    desc_a_codigo_calc = {}
+    tipos_servicio_lista = ['Todos']
+    for codigo in codigos_srv_calc:
+        desc = tipos_srv_calc.get(codigo, {}).get('descripcion', '')
+        desc_normalizada = normalizar_texto(desc) if desc else codigo
+        tipos_servicio_lista.append(desc_normalizada)
+        desc_a_codigo_calc[desc_normalizada] = codigo
     # Grupos de cliente desde los datos reales
     grupos_cliente_lista = sorted(df['Grupo de clientes'].dropna().unique().tolist())
     clientes_lista = ["-- Sin cliente especifico --"] + sorted(df['Cliente'].dropna().unique().tolist())
@@ -5776,7 +5798,7 @@ elif pagina == "Calculadora":
                 bus_info = tipos_bus_dict[tipo_bus_sel]
             with c4:
                 tipo_servicio_sel = st.selectbox("Tipo de Servicio", tipos_servicio_lista, key="c_tipo_srv")
-                tipo_servicio_codigo = tipo_servicio_sel if tipo_servicio_sel != "Todos" else None
+                tipo_servicio_codigo = desc_a_codigo_calc.get(tipo_servicio_sel) if tipo_servicio_sel != "Todos" else None
             with c5:
                 num_vehiculos = st.number_input("Vehiculos", min_value=1, max_value=10, value=1, key="c_vehiculos")
 
