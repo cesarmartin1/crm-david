@@ -1055,6 +1055,33 @@ if pagina == "Acciones":
 
     hoy = datetime.now()
 
+    # --- FILTROS RÁPIDOS DE TIEMPO ---
+    col_rapidos_acc = st.columns(6)
+
+    # Calcular trimestre
+    trim_actual = (hoy.month - 1) // 3 + 1
+    inicio_trim = datetime(hoy.year, (trim_actual - 1) * 3 + 1, 1)
+
+    periodos_acc = {
+        "Este mes": (hoy.replace(day=1).date(), hoy.date()),
+        "Mes ant.": ((hoy.replace(day=1) - timedelta(days=1)).replace(day=1).date(), (hoy.replace(day=1) - timedelta(days=1)).date()),
+        "Este trim.": (inicio_trim.date(), hoy.date()),
+        "Este año": (datetime(hoy.year, 1, 1).date(), hoy.date()),
+        "Año ant.": (datetime(hoy.year-1, 1, 1).date(), datetime(hoy.year-1, 12, 31).date()),
+        "Todo": None
+    }
+
+    if 'periodo_acc' not in st.session_state:
+        st.session_state.periodo_acc = "Este año"
+
+    for i, nombre in enumerate(periodos_acc.keys()):
+        with col_rapidos_acc[i]:
+            if st.button(nombre, key=f"btn_acc_{nombre}",
+                        type="primary" if st.session_state.periodo_acc == nombre else "secondary",
+                        use_container_width=True):
+                st.session_state.periodo_acc = nombre
+                st.rerun()
+
     # --- FILTROS POR FECHA ---
     col_fecha_tipo, col_fecha_desde, col_fecha_hasta = st.columns([1, 1, 1])
 
@@ -1075,8 +1102,16 @@ if pagina == "Acciones":
         fecha_min_acc = hoy.date() - timedelta(days=365)
         fecha_max_acc = hoy.date()
 
-    fecha_default_desde_acc = max(datetime(hoy.year, 1, 1).date(), fecha_min_acc)
-    fecha_default_hasta_acc = min(hoy.date(), fecha_max_acc)
+    # Usar periodo rápido seleccionado o defaults
+    if st.session_state.periodo_acc == "Todo":
+        fecha_default_desde_acc = fecha_min_acc
+        fecha_default_hasta_acc = fecha_max_acc
+    elif st.session_state.periodo_acc in periodos_acc and periodos_acc[st.session_state.periodo_acc]:
+        fecha_default_desde_acc = max(periodos_acc[st.session_state.periodo_acc][0], fecha_min_acc)
+        fecha_default_hasta_acc = min(periodos_acc[st.session_state.periodo_acc][1], fecha_max_acc)
+    else:
+        fecha_default_desde_acc = max(datetime(hoy.year, 1, 1).date(), fecha_min_acc)
+        fecha_default_hasta_acc = min(hoy.date(), fecha_max_acc)
 
     with col_fecha_desde:
         fecha_desde_acc = st.date_input("Desde", value=fecha_default_desde_acc, min_value=fecha_min_acc, max_value=fecha_max_acc, key="fecha_desde_acc")
@@ -3486,7 +3521,35 @@ elif pagina == "Seguimiento Presupuestos":
     st.title("📋 Seguimiento de Presupuestos")
     st.markdown("---")
 
-    # Filtros
+    hoy_seg = datetime.now()
+
+    # --- FILTROS RÁPIDOS DE TIEMPO ---
+    col_rapidos_seg = st.columns(6)
+
+    trim_actual_seg = (hoy_seg.month - 1) // 3 + 1
+    inicio_trim_seg = datetime(hoy_seg.year, (trim_actual_seg - 1) * 3 + 1, 1)
+
+    periodos_seg = {
+        "Este mes": (hoy_seg.replace(day=1).date(), hoy_seg.date()),
+        "Mes ant.": ((hoy_seg.replace(day=1) - timedelta(days=1)).replace(day=1).date(), (hoy_seg.replace(day=1) - timedelta(days=1)).date()),
+        "Este trim.": (inicio_trim_seg.date(), hoy_seg.date()),
+        "Este año": (datetime(hoy_seg.year, 1, 1).date(), hoy_seg.date()),
+        "Año ant.": (datetime(hoy_seg.year-1, 1, 1).date(), datetime(hoy_seg.year-1, 12, 31).date()),
+        "Todo": None
+    }
+
+    if 'periodo_seg' not in st.session_state:
+        st.session_state.periodo_seg = "Este año"
+
+    for i, nombre in enumerate(periodos_seg.keys()):
+        with col_rapidos_seg[i]:
+            if st.button(nombre, key=f"btn_seg_{nombre}",
+                        type="primary" if st.session_state.periodo_seg == nombre else "secondary",
+                        use_container_width=True):
+                st.session_state.periodo_seg = nombre
+                st.rerun()
+
+    # Filtros adicionales
     col1, col2, col3 = st.columns(3)
 
     with col1:
@@ -3501,6 +3564,14 @@ elif pagina == "Seguimiento Presupuestos":
 
     # Filtrar presupuestos
     pendientes = obtener_presupuestos_pendientes(df)
+
+    # Aplicar filtro de periodo rápido
+    if st.session_state.periodo_seg != "Todo" and periodos_seg[st.session_state.periodo_seg]:
+        fecha_ini_seg, fecha_fin_seg = periodos_seg[st.session_state.periodo_seg]
+        pendientes = pendientes[
+            (pendientes['Fecha alta'].dt.date >= fecha_ini_seg) &
+            (pendientes['Fecha alta'].dt.date <= fecha_fin_seg)
+        ]
 
     if comercial_sel != 'Todos':
         pendientes = pendientes[pendientes['Atendido por'] == comercial_sel]
@@ -3874,6 +3945,32 @@ elif pagina == "Analisis Conversion":
 
     hoy = datetime.now()
 
+    # --- FILTROS RÁPIDOS DE TIEMPO ---
+    col_rapidos_conv = st.columns(6)
+
+    trim_actual_conv = (hoy.month - 1) // 3 + 1
+    inicio_trim_conv = datetime(hoy.year, (trim_actual_conv - 1) * 3 + 1, 1)
+
+    periodos_conv = {
+        "Este mes": (hoy.replace(day=1).date(), hoy.date()),
+        "Mes ant.": ((hoy.replace(day=1) - timedelta(days=1)).replace(day=1).date(), (hoy.replace(day=1) - timedelta(days=1)).date()),
+        "Este trim.": (inicio_trim_conv.date(), hoy.date()),
+        "Este año": (datetime(hoy.year, 1, 1).date(), hoy.date()),
+        "Año ant.": (datetime(hoy.year-1, 1, 1).date(), datetime(hoy.year-1, 12, 31).date()),
+        "Todo": None
+    }
+
+    if 'periodo_conv' not in st.session_state:
+        st.session_state.periodo_conv = "Este año"
+
+    for i, nombre in enumerate(periodos_conv.keys()):
+        with col_rapidos_conv[i]:
+            if st.button(nombre, key=f"btn_conv_{nombre}",
+                        type="primary" if st.session_state.periodo_conv == nombre else "secondary",
+                        use_container_width=True):
+                st.session_state.periodo_conv = nombre
+                st.rerun()
+
     # Primera fila: Filtro de fechas
     col_fecha_tipo, col_fecha_desde, col_fecha_hasta = st.columns([1, 1, 1])
 
@@ -3892,9 +3989,16 @@ elif pagina == "Analisis Conversion":
         fecha_min = hoy.date() - timedelta(days=365)
         fecha_max = hoy.date()
 
-    # Por defecto: desde inicio del año actual hasta la fecha máxima disponible
-    fecha_default_desde = max(datetime(hoy.year, 1, 1).date(), fecha_min)
-    fecha_default_hasta = min(hoy.date(), fecha_max)
+    # Usar periodo rápido seleccionado o defaults
+    if st.session_state.periodo_conv == "Todo":
+        fecha_default_desde = fecha_min
+        fecha_default_hasta = fecha_max
+    elif st.session_state.periodo_conv in periodos_conv and periodos_conv[st.session_state.periodo_conv]:
+        fecha_default_desde = max(periodos_conv[st.session_state.periodo_conv][0], fecha_min)
+        fecha_default_hasta = min(periodos_conv[st.session_state.periodo_conv][1], fecha_max)
+    else:
+        fecha_default_desde = max(datetime(hoy.year, 1, 1).date(), fecha_min)
+        fecha_default_hasta = min(hoy.date(), fecha_max)
 
     with col_fecha_desde:
         fecha_desde = st.date_input("Desde", value=fecha_default_desde, min_value=fecha_min, max_value=fecha_max, key="fecha_desde_conv")
