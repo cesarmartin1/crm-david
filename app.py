@@ -6678,13 +6678,13 @@ elif pagina == "Tarifas":
                     {
                         'Nombre': b['nombre'],
                         'Plazas': b['capacidad'],
-                        'Precio €/h': f"{b['precio_base_hora']:.2f}",
-                        'Precio €/km': f"{b['precio_base_km']:.2f}",
-                        'Coste €/km': f"{b.get('coste_km', 0.85):.2f}",
-                        'Coste €/h': f"{b.get('coste_hora', 30.0):.2f}",
+                        'Precio €/h': f"{b.get('precio_base_hora', 0) or 0:.2f}",
+                        'Precio €/km': f"{b.get('precio_base_km', 0) or 0:.2f}",
+                        'Coste €/km': f"{b.get('coste_km', 0.85) or 0:.2f}",
+                        'Coste €/h': f"{b.get('coste_hora', 30.0) or 0:.2f}",
                         'Código': b['codigo']
                     }
-                    for b in sorted(tipos_bus_cfg, key=lambda x: x['capacidad'])
+                    for b in sorted(tipos_bus_cfg, key=lambda x: x.get('capacidad', 0) or 0)
                 ])
                 st.dataframe(df_buses, use_container_width=True, hide_index=True)
 
